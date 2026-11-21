@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>{{ app_config.name }} - 扫码终端</title>
+
+<!--
+  扫码终端页面（含离线数据回传）
+  ------------------------------------------------------------
+  · 在线扫码：扫码枪（键盘输入）+ 拍照识别（HTTP 可用）
+  · HTTPS 场景：额外解锁「实时摄像头」
+  · 离线数据回传：可上传离线设备导出的 JSON，服务端逐条应用
+  · 修改前端代码后请改版本号 ?v=xxx 强制手机端刷新缓存
+-->
+<link rel="stylesheet" href="{{ url_for('static', filename='scan.css') }}?v=20241112d">
+
+<style>
+/* ============================================================
+   ★ 离线数据回传（弹层）——全部内联，不影响 scan.css
+   ============================================================ */
+.scan-offline-entry {
+  margin: 14px 0 6px;
+}
+.scan-offline-btn {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5e1;
+  background: rgba(51, 65, 85, .55);
+  border: 1px solid #334155;
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all .15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.scan-offline-btn:hover {
+  background: rgba(99, 102, 241, .18);
+  border-color: #6366f1;
+  color: #e2e8f0;
+}
+
+/* 弹层 */
+.scan-offline-modal {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, .65);
+  z-index: 2500;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 0;
+  animation: scanOfflineFadeIn .18s ease;
+}
+.scan-offline-modal.hidden { display: none !important; }
+@keyframes scanOfflineFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.scan-offline-dialog {
+  width: 100%; max-width: 640px;
+  max-height: 88vh;
+  background: #1e293b;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, .55);
+  display: flex; flex-direction: column;
+  color: #e2e8f0;
+  animation: scanOfflineSlideUp .22s ease;
+}
+@keyframes scanOfflineSlideUp {
+  from { transform: translateY(20px); opacity: .5; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@media (min-width: 720px) {
+  .scan-offline-modal { align-items: center; padding: 20px; }
+  .scan-offline-dialog { border-radius: 16px; max-height: 84vh; }
+}
+
+.scan-offline-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #334155;
+  flex-shrink: 0;
+}
+.scan-offline-header h2 {
+  margin: 0; font-size: 16px; font-weight: 600;
+  color: #f1f5f9;
+}
+.scan-offline-close {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: transparent; border: none;
+  color: #94a3b8; font-size: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+}
+.scan-offline-close:hover { background: #334155; color: #fff; }
+
+.scan-offline-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.scan-offline-tip {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.6;
+}
+
+.scan-offline-drop {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 6px;
+  padding: 36px 20px;
+  border: 2px dashed #475569;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, .5);
+  cursor: pointer;
+  transition: all .15s;
+  text-align: center;
+}
+.scan-offline-drop:hover,
+.scan-offline-drop.dragover {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, .1);
+}
+.scan-offline-drop-icon { font-size: 36px; }
+.scan-offline-drop-hint { font-size: 12px; color: #64748b; }
+
+.scan-offline-meta {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 6px 12px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.scan-offline-meta > div { line-height: 1.5; }
+.scan-offline-meta b { color: #94a3b8; font-weight: 500; }
+
+.scan-offline-warning {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+  background: rgba(245, 158, 11, .12);
+  border: 1px solid rgba(245, 158, 11, .3);
+  color: #fbbf24;
+}
+.scan-offline-warning-ok {
+  background: rgba(16, 185, 129, .12);
+  border-color: rgba(16, 185, 129, .3);
+  color: #6ee7b7;
+}
+.scan-offline-warning.hidden { display: none !important; }
+
+.scan-offline-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, .4);
+}
+.scan-offline-prev-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid #1e293b;
+}
+.scan-offline-prev-item:last-child { border-bottom: none; }
+.scan-offline-prev-item .idx { color: #64748b; width: 36px; flex-shrink: 0; }
+.scan-offline-prev-item .app {
+  color: #818cf8; font-weight: 600;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 6px; border-radius: 4px;
+  background: rgba(99, 102, 241, .15);
+  flex-shrink: 0;
+}
+.scan-offline-prev-item .action { color: #e2e8f0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scan-offline-prev-item .time { color: #64748b; font-size: 11px; flex-shrink: 0; }
+.scan-offline-prev-more {
+  justify-content: center;
+  color: #64748b;
+  font-style: italic;
+}
+
+.scan-offline-result-summary {
+  display: flex; gap: 12px;
+  padding: 14px 18px;
+  background: rgba(15, 23, 42, .4);
+  border-radius: 10px;
+  margin-bottom: 14px;
+}
+.scan-offline-result-summary > div {
+  flex: 1; text-align: center;
+}
+.scan-offline-num {
+  display: block;
+  font-size: 22px; font-weight: 700;
+}
+.scan-offline-num.ok { color: #10b981; }
+.scan-offline-num.fail { color: #ef4444; }
+.scan-offline-num.skip { color: #f59e0b; }
+.scan-offline-lbl { font-size: 12px; color: #94a3b8; }
+
+.scan-offline-result-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, .4);
+}
+.scan-offline-res-item {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid #1e293b;
+}
+.scan-offline-res-item:last-child { border-bottom: none; }
+.scan-offline-res-item .idx { color: #64748b; width: 36px; flex-shrink: 0; }
+.scan-offline-res-item .badge {
+  padding: 1px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; flex-shrink: 0;
+}
+.scan-offline-res-item .badge.ok { background: rgba(16, 185, 129, .2); color: #6ee7b7; }
+.scan-offline-res-item .badge.fail { background: rgba(239, 68, 68, .2); color: #fca5a5; }
+.scan-offline-res-item .badge.skip { background: rgba(245, 158, 11, .2); color: #fbbf24; }
+.scan-offline-res-item .msg { flex: 1; min-width: 0; color: #cbd5e1; word-break: break-word; }
+
+.scan-offline-footer {
+  display: flex; gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid #334155;
+  flex-shrink: 0;
+  background: rgba(15, 23, 42, .4);
+}
+.scan-offline-footer button {
+  flex: 1;
+  padding: 11px 16px;
+  font-size: 14px; font-weight: 600;
+  border: none; border-radius: 8px;
+  cursor: pointer; font-family: inherit;
+  transition: all .15s;
+}
+.scan-offline-btn-secondary {
+  background: #334155; color: #e2e8f0;
+}
+.scan-offline-btn-secondary:hover { background: #475569; }
+.scan-offline-btn-primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+}
+.scan-offline-btn-primary:hover { filter: brightness(1.08); }
+.scan-offline-btn-primary:disabled,
+.scan-offline-btn-secondary:disabled {
+  opacity: .5; cursor: not-allowed; filter: none;
+}
+
+.hidden { display: none !important; }
+</style>
+
+<script>
+  window.SCAN_APP  = {{ app_config|tojson }};
+  window.SCAN_USER = {{ username|tojson }};
+  window.CSRF      = {{ csrf_token|tojson }};
+</script>
+</head>
+<body class="scan-body">
+
+<!-- ==================== 顶栏 ==================== -->
+<header class="scan-topbar">
+  <a href="/scan" class="scan-back">←</a>
+  <div class="scan-title">
+    <span>{{ app_config.icon }}</span> {{ app_config.name }}
+  </div>
+  <button id="btnLogout" class="scan-logout">退出</button>
+</header>
+
+<!-- ==================== 主内容 ==================== -->
+<main class="scan-main">
+
+  <!-- 扫码按钮区 -->
+  <section class="scan-input-area">
+    <button id="btnCamera" class="scan-big-btn">
+      <svg viewBox="0 0 24 24" class="scan-cam-icon">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>
+      扫描二维码
+    </button>
+    <div class="scan-hint">或用扫码枪直接扫描</div>
+
+    <input id="kbInput" type="text" autocomplete="off" inputmode="none"
+           style="position:fixed;width:1px;height:1px;opacity:0;top:0;left:0;border:0;padding:0;margin:0;z-index:-1;">
+  </section>
+
+  <!-- ★ 离线数据回传入口 -->
+  <section class="scan-offline-entry">
+    <button id="btnOfflineUpload" class="scan-offline-btn" type="button">
+      📥 上传离线数据
+    </button>
+  </section>
+
+  <!-- 扫码结果卡片 -->
+  <section id="cardArea" class="scan-card-area hidden">
+    <div class="scan-card">
+      <div id="cardStatus" class="scan-card-status"></div>
+      <dl id="cardFields" class="scan-card-fields"></dl>
+      <div id="cardActions" class="scan-card-actions"></div>
+    </div>
+  </section>
+
+  <!-- 本次记录 -->
+  <section class="scan-history-wrap">
+    <h3 class="scan-history-title">本次记录</h3>
+    <ul id="historyList" class="scan-history"></ul>
+  </section>
+</main>
+
+<!-- 实时摄像头弹层 -->
+<div id="cameraModal" class="scan-cam-modal hidden">
+  <div id="cameraReader" class="scan-cam-reader"></div>
+  <button id="cameraClose" class="scan-cam-close">✕</button>
+</div>
+
+<!-- ★ 离线数据回传弹层 -->
+<div id="offlineModal" class="scan-offline-modal hidden">
+  <div class="scan-offline-dialog">
+    <div class="scan-offline-header">
+      <h2>📥 上传离线数据</h2>
+      <button id="offlineClose" class="scan-offline-close" type="button">✕</button>
+    </div>
+    <div class="scan-offline-body">
+
+      <!-- 步骤 1：选文件 -->
+      <div id="offlineStep1">
+        <p class="scan-offline-tip">
+          选择离线设备导出的 JSON 文件（由「下载离线页面」生成的应用扫码页导出）。<br>
+          服务端会逐条应用，已成功上传的记录会自动跳过。
+        </p>
+        <label class="scan-offline-drop" for="offlineFileInput">
+          <span class="scan-offline-drop-icon">📄</span>
+          <span>点击选择 JSON 文件</span>
+          <span class="scan-offline-drop-hint">或拖拽到这里</span>
+        </label>
+        <input id="offlineFileInput" type="file" accept=".json,application/json" hidden>
+      </div>
+
+      <!-- 步骤 2：预览 -->
+      <div id="offlineStep2" class="hidden">
+        <div class="scan-offline-meta">
+          <div><b>批次</b></div><div id="offlineBatchId">—</div>
+          <div><b>应用</b></div><div id="offlineAppIds">—</div>
+          <div><b>条数</b></div><div id="offlineCount">—</div>
+          <div><b>导出时间</b></div><div id="offlineExportedAt">—</div>
+        </div>
+        <div id="offlineAppWarning" class="scan-offline-warning hidden"></div>
+        <div id="offlinePreviewList" class="scan-offline-list"></div>
+      </div>
+
+      <!-- 步骤 3：结果 -->
+      <div id="offlineStep3" class="hidden">
+        <div class="scan-offline-result-summary">
+          <div><span class="scan-offline-num ok" id="offlineResOk">0</span><span class="scan-offline-lbl">成功</span></div>
+          <div><span class="scan-offline-num fail" id="offlineResFail">0</span><span class="scan-offline-lbl">失败</span></div>
+          <div><span class="scan-offline-num skip" id="offlineResSkip">0</span><span class="scan-offline-lbl">跳过</span></div>
+        </div>
+        <div id="offlineResultList" class="scan-offline-result-list"></div>
+      </div>
+
+    </div>
+    <div class="scan-offline-footer">
+      <button id="offlineBtnReset" class="scan-offline-btn-secondary" type="button">重新选择</button>
+      <button id="offlineBtnUpload" class="scan-offline-btn-primary" type="button" disabled>开始上传</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast 提示 -->
+<div id="toast" class="scan-toast"></div>
+
+<!-- ==================== 扫码核心逻辑 ==================== -->
+<script src="{{ url_for('static', filename='jsQR.js') }}?v=20241112c"></script>
+<script src="{{ url_for('static', filename='scan.js') }}?v=20241112c"></script>
+<!-- ★ 离线数据回传逻辑 -->
+<script src="{{ url_for('static', filename='scan-offline-inline.js') }}?v=1"></script>
+
+</body>
+</html>

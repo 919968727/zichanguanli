@@ -1,0 +1,31 @@
+---
+description: 观测台（/dashboard）的图表配置、尺寸跨度与拖拽布局约定。当涉及观测台、图表布局、dashboard.js、图表尺寸或排序时加载。
+alwaysApply: false
+enabled: true
+provider:
+---
+
+# 观测台（原态势大屏）
+
+- 路由 `/dashboard`，模板 `templates/dashboard.html`，样式 `static/dashboard.css`，逻辑 `static/dashboard.js`（独立 IIFE，不复用 editor-chart.js）。
+- 已是登录后的首屏（见项目契约的落地页约定）。
+- 标题：观测台 / OBSERVATORY；顶栏入口在 editor 侧栏菜单第一项（`#menuObservatory`）。
+
+## 图表配置（localStorage，个人级）
+- key `ledger_dashboard_charts_v1`，最多 20 张。
+- 单项结构：`{id, lid, title, type, catCol, valCol, aggregate, topN, spanW, spanH}`。
+- 类型 6 种：bar/line/area/pie/doughnut/radar。字段按**列名**匹配（`idxOfName`），不是列 UUID。
+- `spanW`（1~4，默认 2）/ `spanH`（1~3，默认 1）控制卡片占几列几行；`GRID_COLS=4` 与 CSS `repeat(4,..)` 对应。
+- 旧配置无 span 字段时由 `normalizeCfg()` 在加载时补默认值——改 schema 时保持向后兼容。
+
+## 布局实现
+- 网格：4 列栅格，窄屏 `@media` 降为 2 列/1 列。
+- 卡片尺寸：`renderCard()` 写 `card.style.gridColumn/gridRow = 'span N'`。
+- 拖拽排序：标题栏 `[data-drag="1"]` 绑定 HTML5 dragstart/dragover/drop，落位后 `charts.splice` 移动顺序 → `saveCharts()` → `renderAll()`。用 `new DataTransfer()` 构造事件。
+- 尺寸/顺序都持久化到 localStorage，刷新保持；顶栏"重置布局"恢复 spanW=2/spanH=1（不改图表本身）。
+
+## 修改注意
+- 图表配置是 localStorage（按浏览器），不是数据库；要多人共享才需新增后端 API。
+- 数据来自 `/api/dashboard/summary` + `/api/ledgers/<id>`，首次访问自动为每台账生成默认图。
+- 渲染有 `renderGen` 代际保护，异步回调只画当前代；改渲染流程要保留。
+- 生效需重启服务（Flask debug=False 不热重载），本机 8765 端口。

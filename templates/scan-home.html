@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>扫码终端</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='scan.css') }}?v=3">
+</head>
+<body class="scan-body">
+
+<header class="scan-topbar">
+  <a href="/editor" class="scan-back">←</a>
+  <div class="scan-title">扫码终端</div>
+  <button id="btnLogout" class="scan-logout">退出</button>
+</header>
+
+<main class="scan-main">
+  <h2 class="scan-home-title">可用应用</h2>
+
+  {% if apps %}
+    <div class="scan-apps">
+      {% for a in apps %}
+        <a class="scan-app-card" href="/scan/{{ a.app_id }}">
+          <span class="scan-app-icon">{{ a.icon }}</span>
+          <span class="scan-app-info">
+            <span class="scan-app-name">{{ a.name }}</span>
+            {% if a.description %}
+              <span class="scan-app-desc">{{ a.description }}</span>
+            {% endif %}
+          </span>
+          <span class="scan-app-arrow">›</span>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="scan-empty-state">
+      暂无可用应用<br>
+      <small>请联系管理员在编辑器中创建扫码应用</small>
+    </div>
+  {% endif %}
+</main>
+
+<script>
+document.getElementById('btnLogout').addEventListener('click', async () => {
+  if (!confirm('确定退出登录？')) return;
+  await fetch('/logout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  location.href = '/scan-login';
+});
+</script>
+</body>
+</html>

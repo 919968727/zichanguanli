@@ -1,0 +1,183 @@
+{
+  "ledgers": {
+    "asset_inventory": {
+      "name": "资产管理",
+      "headers": [
+        "资产编号", "设备名称", "设备类型", "品牌", "型号",
+        "所属机房", "机柜", "IP地址", "负责人", "状态", "数量",
+        "采购日期", "保修到期", "单价", "巡检", "详情"
+      ],
+      "generate": { "type": "asset_rows", "count": 2000 },
+      "options": {
+        "设备类型": ["服务器", "交换机", "路由器", "存储", "UPS", "空调", "配电柜", "KVM", "防火墙"],
+        "状态": ["在用", "闲置", "维修中", "报废"]
+      },
+      "charts": [
+        { "type": "bar", "title": "各设备类型数量", "cat_col": "设备类型", "val_col": "数量",
+          "aggregate": "sum", "topN": 20 },
+        { "type": "pie", "title": "设备状态分布", "cat_col": "状态", "val_col": "数量",
+          "aggregate": "sum", "topN": 10 },
+        { "type": "bar", "title": "机房设备分布", "cat_col": "所属机房", "val_col": "数量",
+          "aggregate": "sum", "topN": 10 },
+        { "type": "bar", "title": "品牌设备数量", "cat_col": "品牌", "val_col": "数量",
+          "aggregate": "sum", "topN": 20 },
+        { "type": "bar", "title": "负责人设备数量", "cat_col": "负责人", "val_col": "数量",
+          "aggregate": "sum", "topN": 20 }
+      ]
+    },
+    "inventory_log": {
+      "name": "出入库流水",
+      "headers": [
+        "单号", "日期", "类型", "设备名称", "设备类型",
+        "数量", "操作员", "资产编号", "备注"
+      ],
+      "generate": { "type": "inventory_log_rows", "count": 5000 },
+      "options": {
+        "类型": ["入库", "出库"]
+      },
+      "charts": [
+        { "type": "bar", "title": "入库 / 出库数量对比", "cat_col": "类型", "val_col": "数量",
+          "aggregate": "sum", "topN": 0 },
+        { "type": "bar", "title": "各操作员处理量", "cat_col": "操作员", "val_col": "数量",
+          "aggregate": "sum", "topN": 20 },
+        { "type": "bar", "title": "各设备类型流量", "cat_col": "设备类型", "val_col": "数量",
+          "aggregate": "sum", "topN": 20 }
+      ]
+    },
+    "inspection_log": {
+      "name": "巡检日志",
+      "headers": [
+        "巡检时间", "巡检员", "设备名称", "所属机房",
+        "机柜", "巡检结果", "异常描述", "资产编号"
+      ],
+      "generate": { "type": "inspection_log_rows", "count": 10000 },
+      "options": {
+        "巡检结果": ["正常", "温度过高", "网络异常", "硬盘告警", "电源异常"]
+      },
+      "charts": [
+        { "type": "pie", "title": "巡检结果分布", "cat_col": "巡检结果", "val_col": "资产编号",
+          "aggregate": "count", "topN": 10 },
+        { "type": "bar", "title": "各巡检员处理量", "cat_col": "巡检员", "val_col": "资产编号",
+          "aggregate": "count", "topN": 20 },
+        { "type": "bar", "title": "各机房巡检量", "cat_col": "所属机房", "val_col": "资产编号",
+          "aggregate": "count", "topN": 10 }
+      ]
+    },
+    "monthly_stats": {
+      "name": "月度统计",
+      "headers": ["月份", "入库", "出库", "净增"],
+      "generate": { "type": "monthly_stats_rows", "count": 24 },
+      "charts": [
+        { "type": "line", "title": "月度入库趋势", "cat_col": "月份", "val_col": "入库",
+          "aggregate": "none", "topN": 0 },
+        { "type": "line", "title": "月度出库趋势", "cat_col": "月份", "val_col": "出库",
+          "aggregate": "none", "topN": 0 },
+        { "type": "line", "title": "月度净增趋势", "cat_col": "月份", "val_col": "净增",
+          "aggregate": "none", "topN": 0 }
+      ]
+    },
+    "overview": {
+      "name": "数据中心总览",
+      "headers": [
+        "设备类型", "总数", "在用", "闲置", "维修中", "报废", "占比", "操作"
+      ],
+      "generate": { "type": "overview_rows", "count": 9 },
+      "charts": [
+        { "type": "bar", "title": "各类型设备总数", "cat_col": "设备类型", "val_col": "总数",
+          "aggregate": "none", "topN": 0 },
+        { "type": "pie", "title": "各类型设备占比", "cat_col": "设备类型", "val_col": "总数",
+          "aggregate": "none", "topN": 0 },
+        { "type": "bar", "title": "各类型在用数量", "cat_col": "设备类型", "val_col": "在用",
+          "aggregate": "none", "topN": 0 }
+      ]
+    }
+  },
+  "links": [],
+  "auto_links": [
+    { "from": "asset_inventory", "to": "inspection_log", "col": "巡检" },
+    { "from": "asset_inventory", "to": "inventory_log", "col": "详情" }
+  ],
+  "scan_apps": {
+    "asset_inbound": {
+      "name": "资产入库",
+      "icon": "📦",
+      "description": "扫描设备二维码，快速标记入库 / 维修 / 报废，并自动记入出入库流水",
+      "ledger_id": "asset_inventory",
+      "display": [
+        { "col": "资产编号", "label": "资产编号", "highlight": true },
+        { "col": "设备名称", "label": "设备名称" },
+        { "col": "设备类型", "label": "设备类型" },
+        { "col": "品牌", "label": "品牌" },
+        { "col": "所属机房", "label": "所属机房" },
+        { "col": "机柜", "label": "机柜" },
+        { "col": "负责人", "label": "负责人" },
+        { "col": "状态", "label": "当前状态", "highlight": true }
+      ],
+      "actions": [
+        { "id": "inbound", "label": "入库（在用）", "type": "set_value",
+          "col": "状态", "value_type": "fixed", "value": "在用", "confirm": false },
+        { "id": "lend", "label": "借出（闲置）", "type": "set_value",
+          "col": "状态", "value_type": "fixed", "value": "闲置", "confirm": true },
+        { "id": "repair", "label": "送修", "type": "set_value",
+          "col": "状态", "value_type": "fixed", "value": "维修中", "confirm": true },
+        { "id": "scrap", "label": "报废", "type": "set_value",
+          "col": "状态", "value_type": "fixed", "value": "报废", "danger": true, "confirm": true }
+      ],
+      "append_log": {
+        "enabled": true,
+        "ledger_id": "inventory_log",
+        "fields": {
+          "单号": "",
+          "日期": "$now",
+          "类型": "入库",
+          "设备名称": "$col:设备名称",
+          "设备类型": "$col:设备类型",
+          "数量": "1",
+          "操作员": "$user",
+          "资产编号": "$col:资产编号",
+          "备注": "扫码 · $action_label"
+        }
+      },
+      "success_audio": true,
+      "auto_clear_after_ms": 800
+    },
+    "asset_inspection": {
+      "name": "日常巡检",
+      "icon": "🔍",
+      "description": "扫描设备二维码，记录巡检结果并自动写入巡检日志",
+      "ledger_id": "asset_inventory",
+      "display": [
+        { "col": "资产编号", "label": "资产编号", "highlight": true },
+        { "col": "设备名称", "label": "设备名称" },
+        { "col": "设备类型", "label": "设备类型" },
+        { "col": "所属机房", "label": "所属机房" },
+        { "col": "机柜", "label": "机柜" },
+        { "col": "负责人", "label": "负责人" },
+        { "col": "状态", "label": "设备状态", "highlight": true },
+        { "col": "保修到期", "label": "保修到期" }
+      ],
+      "actions": [
+        { "id": "normal", "label": "巡检正常", "type": "set_value",
+          "col": "状态", "value_type": "fixed", "value": "在用", "confirm": false },
+        { "id": "repair_now", "label": "异常·报修", "type": "set_value",
+          "col": "状态", "value_type": "fixed", "value": "维修中", "confirm": true }
+      ],
+      "append_log": {
+        "enabled": true,
+        "ledger_id": "inspection_log",
+        "fields": {
+          "巡检时间": "$now",
+          "巡检员": "$user",
+          "设备名称": "$col:设备名称",
+          "所属机房": "$col:所属机房",
+          "机柜": "$col:机柜",
+          "巡检结果": "$action_label",
+          "异常描述": "",
+          "资产编号": "$col:资产编号"
+        }
+      },
+      "success_audio": true,
+      "auto_clear_after_ms": 800
+    }
+  }
+}

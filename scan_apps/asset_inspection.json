@@ -1,0 +1,79 @@
+{
+  "name": "日常巡检",
+  "icon": "🔍",
+  "description": "扫描设备二维码，记录巡检结果并自动写入巡检日志",
+  "ledger_id": 2,
+  "display": [
+    {
+      "col": "4a1b8409f42b4e1ab793d8ee1f54edf2",
+      "label": "资产编号",
+      "highlight": true
+    },
+    {
+      "col": "4a1b8409f42b4e1ab793d8ee1f54edf2",
+      "label": "设备名称",
+      "highlight": false
+    },
+    {
+      "col": "4a1b8409f42b4e1ab793d8ee1f54edf2",
+      "label": "设备类型",
+      "highlight": false
+    },
+    {
+      "col": "4a1b8409f42b4e1ab793d8ee1f54edf2",
+      "label": "所属机房",
+      "highlight": false
+    },
+    {
+      "col": "4a1b8409f42b4e1ab793d8ee1f54edf2",
+      "label": "机柜",
+      "highlight": false
+    },
+    {
+      "col": "4a1b8409f42b4e1ab793d8ee1f54edf2",
+      "label": "负责人",
+      "highlight": false
+    },
+    {
+      "col": "4a1b8409f42b4e1ab793d8ee1f54edf2",
+      "label": "设备状态",
+      "highlight": true
+    },
+    {
+      "col": "4a1b8409f42b4e1ab793d8ee1f54edf2",
+      "label": "保修到期",
+      "highlight": false
+    }
+  ],
+  "actions": [
+    {
+      "id": "normal",
+      "label": "巡检正常",
+      "type": "set_value",
+      "col": "4a1b8409f42b4e1ab793d8ee1f54edf2",
+      "value": "在用",
+      "confirm": false,
+      "danger": false
+    },
+    {
+      "id": "repair_now",
+      "label": "异常·报修",
+      "type": "set_value",
+      "col": "4a1b8409f42b4e1ab793d8ee1f54edf2",
+      "value": "维修中",
+      "confirm": true,
+      "danger": false
+    },
+    {
+      "id": "pepple",
+      "label": "操作员",
+      "type": "set_value",
+      "col": "b712a13e0b9543aca87afc7a418fdac9",
+      "value": "",
+      "confirm": false,
+      "danger": false
+    }
+  ],
+  "success_audio": true,
+  "auto_clear_after_ms": 800
+}

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>离线数据回传</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
+                 "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    background: #f1f5f9; color: #1e293b;
+    display: flex; flex-direction: column; min-height: 100vh;
+  }
+  .topbar {
+    background: linear-gradient(135deg, #1e293b, #334155);
+    color: #fff; padding: 0 24px; height: 60px;
+    display: flex; align-items: center; gap: 14px;
+    box-shadow: 0 4px 20px rgba(15,23,42,.08);
+  }
+  .topbar .back {
+    color: #94a3b8; text-decoration: none; font-size: 20px;
+    width: 32px; height: 32px; display: flex;
+    align-items: center; justify-content: center; border-radius: 6px;
+  }
+  .topbar .back:hover { background: rgba(255,255,255,.1); color: #fff; }
+  .topbar h1 { margin: 0; font-size: 16px; font-weight: 600; flex: 1; }
+  .topbar .user { font-size: 13px; opacity: .8; }
+
+  .container { flex: 1 1 auto; max-width: 960px; margin: 0 auto;
+    padding: 28px 20px; width: 100%; }
+
+  .panel {
+    background: #fff; border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(15,23,42,.08);
+    overflow: hidden; margin-bottom: 18px;
+  }
+  .panel-header {
+    padding: 16px 22px; border-bottom: 1px solid #e2e8f0;
+    font-size: 15px; font-weight: 600;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .panel-body { padding: 20px 22px; }
+
+  .drop-zone {
+    border: 2px dashed #cbd5e1; border-radius: 12px;
+    padding: 36px 20px; text-align: center;
+    cursor: pointer; transition: all .15s;
+    background: #f8fafc;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: #6366f1; background: #eef2ff;
+  }
+  .drop-zone .big-icon { font-size: 40px; margin-bottom: 8px; }
+  .drop-zone .title { font-size: 14px; font-weight: 600; color: #334155; }
+  .drop-zone .hint { font-size: 12px; color: #64748b; margin-top: 6px; }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 8px 16px;
+    margin-top: 16px;
+    font-size: 13px;
+  }
+  .meta-grid .k { color: #64748b; }
+  .meta-grid .v { color: #1e293b; font-weight: 500; word-break: break-all; }
+
+  table.preview {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px; margin-top: 8px;
+  }
+  table.preview th, table.preview td {
+    padding: 8px 10px; text-align: left;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  table.preview th {
+    background: #f8fafc; font-weight: 600; color: #64748b;
+    font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
+  }
+  table.preview td.gid {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11.5px; color: #4f46e5; word-break: break-all;
+  }
+
+  .actions {
+    display: flex; gap: 10px; align-items: center;
+    margin-top: 18px; flex-wrap: wrap;
+  }
+  button {
+    font-family: inherit; font-size: 14px; font-weight: 600;
+    padding: 10px 20px; border: none; border-radius: 8px;
+    cursor: pointer; transition: all .15s;
+  }
+  .btn-primary { background: #6366f1; color: #fff; }
+  .btn-primary:hover { background: #4f46e5; }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-secondary { background: #e2e8f0; color: #334155; }
+  .btn-secondary:hover { background: #cbd5e1; }
+
+  .result-summary {
+    display: flex; gap: 16px; margin-top: 16px;
+    padding: 14px 18px; background: #f8fafc;
+    border-radius: 10px; flex-wrap: wrap;
+  }
+  .result-summary .stat {
+    flex: 1 1 100px; text-align: center;
+  }
+  .result-summary .num { font-size: 24px; font-weight: 700; }
+  .result-summary .lbl { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .num.ok { color: #10b981; }
+  .num.fail { color: #ef4444; }
+  .num.skip { color: #f59e0b; }
+
+  .result-list {
+    margin-top: 16px; max-height: 320px; overflow-y: auto;
+    border: 1px solid #e2e8f0; border-radius: 10px;
+  }
+  .result-item {
+    padding: 8px 12px; font-size: 12.5px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .result-item:last-child { border-bottom: none; }
+  .result-item .idx { color: #94a3b8; width: 40px; flex-shrink: 0; }
+  .result-item .badge {
+    flex-shrink: 0; padding: 1px 8px; border-radius: 6px;
+    font-size: 11px; font-weight: 600;
+  }
+  .result-item .badge.ok { background: #d1fae5; color: #047857; }
+  .result-item .badge.fail { background: #fee2e2; color: #b91c1c; }
+  .result-item .badge.skip { background: #fef3c7; color: #b45309; }
+  .result-item .msg { color: #334155; word-break: break-all; }
+
+  .empty-state { text-align: center; padding: 28px 16px; color: #94a3b8; font-size: 13px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a href="/scan" class="back">←</a>
+  <h1>📥 离线数据回传</h1>
+  <span class="user">{{ username }}</span>
+</header>
+
+<div class="container">
+
+  <div class="panel">
+    <div class="panel-header">① 选择离线 JSON 文件</div>
+    <div class="panel-body">
+      <div class="drop-zone" id="dropZone">
+        <div class="big-icon">📄</div>
+        <div class="title">点击选择，或把 JSON 文件拖到这里</div>
+        <div class="hint">文件由离线设备的「离线扫码」页导出，格式为 offline-*.json</div>
+      </div>
+      <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
+
+      <div id="fileMeta" class="hidden">
+        <div class="meta-grid">
+          <div class="k">批次 ID</div><div class="v" id="metaBatch">—</div>
+          <div class="k">应用</div><div class="v" id="metaApp">—</div>
+          <div class="k">导出时间</div><div class="v" id="metaExported">—</div>
+          <div class="k">记录数</div><div class="v" id="metaCount">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel hidden" id="previewPanel">
+    <div class="panel-header">② 预览</div>
+    <div class="panel-body" style="padding: 0;">
+      <div style="max-height: 360px; overflow-y: auto;">
+        <table class="preview" id="previewTable">
+          <thead><tr>
+            <th style="width:40px;">#</th>
+            <th style="width:120px;">操作</th>
+            <th>二维码</th>
+            <th style="width:160px;">扫码时间</th>
+          </tr></thead>
+          <tbody id="previewBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions hidden" id="actionBar">
+    <button class="btn-primary" id="btnUpload">开始上传</button>
+    <button class="btn-secondary" id="btnReset">重新选择</button>
+    <span style="flex:1"></span>
+  </div>
+
+  <div class="panel hidden" id="resultPanel">
+    <div class="panel-header">③ 上传结果</div>
+    <div class="panel-body">
+      <div class="result-summary">
+        <div class="stat"><div class="num ok" id="resOk">0</div><div class="lbl">成功</div></div>
+        <div class="stat"><div class="num fail" id="resFail">0</div><div class="lbl">失败</div></div>
+        <div class="stat"><div class="num skip" id="resSkip">0</div><div class="lbl">跳过</div></div>
+        <div class="stat"><div class="num" id="resTotal">0</div><div class="lbl">总计</div></div>
+      </div>
+      <div class="result-list" id="resultList"></div>
+      <div class="actions" style="margin-top:16px;">
+        <button class="btn-primary" id="btnAgain">继续上传其它文件</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>window.CSRF = {{ csrf_token|tojson }};</script>
+<script src="{{ url_for('static', filename='scan-offline-upload.js') }}?v=1"></script>
+
+</body>
+</html>

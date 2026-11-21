@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>台账编辑器</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='editor.css') }}">
+<script>window.CSRF_TOKEN = "{{ csrf_token }}";</script>
+<script>
+  var CURRENT_USER = {{ username|tojson }};
+  var CSRF = {{ csrf_token|tojson }};
+  var IS_ROOT = CURRENT_USER === 'root';
+</script>
+<script src="{{ url_for('static', filename='xlsx.full.min.js') }}"></script>
+<script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='qrcode-gen.js') }}"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <button id="btnSidebarToggle" class="sidebar-toggle" title="收起 / 展开台账列表" aria-label="收起或展开台账列表">
+      <svg class="icon" viewBox="0 0 24 24">
+        <line x1="3" y1="6" x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+    </button>
+    <span class="brand-logo">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+      </svg>
+    </span>
+    台账管理系统
+  </div>
+  <div class="actions">
+    <button id="btnNew" class="ghost with-icon">
+      <svg class="icon" viewBox="0 0 24 24">
+        <line x1="12" y1="5" x2="12" y2="19"/>
+        <line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+      新建台账
+    </button>
+    <button id="btnSave" class="ghost with-icon">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+        <polyline points="17 21 17 13 7 13 7 21"/>
+        <polyline points="7 3 7 8 15 8"/>
+      </svg>
+      保存
+    </button>
+    <button id="btnRefresh" class="ghost with-icon" title="重新加载当前台账数据，不刷新页面">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M23 4v6h-6"/>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+      刷新台账
+    </button>
+    <a href="/dashboard" style="text-decoration:none;">
+      <button class="ghost with-icon">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M3 3v18h18"/>
+          <path d="M7 15l4-4 3 3 5-6"/>
+        </svg>
+        态势大屏
+      </button>
+    </a>
+    {% if username == 'root' %}
+      <a href="/admin" style="text-decoration:none;">
+        <button class="ghost with-icon">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          用户管理<span id="pendingBadge" class="badge hidden">0</span>
+        </button>
+      </a>
+    {% endif %}
+    <span class="user">当前用户：{{ username }}</span>
+    <button id="btnLogout" class="danger with-icon">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <polyline points="16 17 21 12 16 7"/>
+        <line x1="21" y1="12" x2="9" y2="12"/>
+      </svg>
+      退出
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-title">
+      <span>功能菜单</span>
+      <button id="btnSidebarCollapse" class="sidebar-collapse" title="收起侧栏" aria-label="收起侧栏">‹</button>
+    </div>
+    <nav class="side-menu">
+      <a href="/dashboard" class="side-menu-link" id="menuObservatory" title="进入观测台">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M3 3v18h18"/>
+          <path d="M7 15l4-4 3 3 5-6"/>
+        </svg>
+        <span>观测台</span>
+        <span class="side-menu-arrow">↗</span>
+      </a>
+      <div class="side-menu-group" id="groupLedgers">
+        <button class="side-menu-group-head" id="groupLedgersToggle" aria-expanded="true">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M4 6h16M4 12h16M4 18h10"/>
+          </svg>
+          <span>台账列表</span>
+          <span class="side-menu-caret" id="groupLedgersCaret">▾</span>
+        </button>
+        <div class="side-menu-group-body" id="groupLedgersBody">
+          <div class="sidebar-search">
+            <input id="searchInput" type="text" placeholder="搜索台账（支持 * 通配）" autocomplete="off">
+          </div>
+          <ul id="ledgerList" class="ledger-list"></ul>
+          <div id="emptyTip" class="empty hidden">暂无台账</div>
+        </div>
+      </div>
+    </nav>
+  </aside>
+  <button id="sidebarExpandRail" class="sidebar-expand-rail hidden" title="展开台账列表" aria-label="展开台账列表">›</button>
+
+  <main class="main">
+    <div id="placeholder" class="placeholder">
+      <svg class="icon" style="width:40px;height:40px;stroke-width:1.4;opacity:.5;" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+      <p style="margin:0;">请从左侧选择一个台账，或点击「新建台账」</p>
+    </div>
+
+    <div id="editorWrap" class="editor-wrap hidden">
+      <header class="toolbar">
+        <input id="ledgerName" class="ledger-name" maxlength="50" title="台账名称">
+        <span id="readonlyBadge" class="readonly-badge hidden">只读</span>
+
+        <span class="toolbar-divider"></span>
+
+        <button id="btnAddRow" class="small" title="在末尾新增一行">+ 行</button>
+        <button id="btnAddCol" class="small" title="在末尾（更新时间列之前）新增一列">+ 列</button>
+        <button id="btnDelRow" class="small" title="删除最后一行（右键任意行号可指定行）">- 行</button>
+        <button id="btnDelCol" class="small" title="删除最后一列数据列（右键任意列头可指定列）">- 列</button>
+
+        <span class="toolbar-divider"></span>
+
+        <span id="batchBar" class="batch-bar">
+          <span class="batch-count">已选 <b id="batchCount">0</b> 行</span>
+          <select id="batchAction" class="batch-action-sel" title="选择要执行的批量操作">
+            <option value="print">批量打印二维码</option>
+            <option value="delete">批量删除</option>
+            <option value="setvalue">批量改值</option>
+          </select>
+          <span id="batchSetWrap" class="batch-set-wrap hidden">
+            <select id="batchColSel" class="batch-col-sel" title="选择要批量修改的列"></select>
+            <input id="batchValue" class="batch-value" type="text" placeholder="新值" title="要统一设置的新值">
+          </span>
+          <button id="btnBatchStart" class="small" title="执行所选批量操作">开始</button>
+          <button id="btnBatchClear" class="small batch-clear" title="清空勾选">取消选择</button>
+        </span>
+
+        <button id="btnScanConfig" class="small with-icon" title="配置扫码应用">
+          <svg class="icon" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+          </svg>
+          扫码配置
+        </button>
+        <button id="btnChart" class="small with-icon">
+          <svg class="icon" viewBox="0 0 24 24">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+          图表
+        </button>
+        <button id="btnFocusChart" class="small with-icon" title="隐藏表格，专注查看图表">
+          <svg class="icon" viewBox="0 0 24 24">
+            <polyline points="4 14 10 14 10 20"/>
+            <polyline points="20 10 14 10 14 4"/>
+            <line x1="14" y1="10" x2="21" y2="3"/>
+            <line x1="3" y1="21" x2="10" y2="14"/>
+          </svg>
+          专注图表
+        </button>
+        <button id="btnImport" class="small with-icon">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          导入
+        </button>
+        <button id="btnExport" class="small with-icon">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          导出
+        </button>
+
+        <span class="toolbar-divider hidden" id="dividerTeam"></span>
+        <button id="btnTeam" class="small hidden with-icon" title="成员与权限">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          成员与权限
+        </button>
+        <button id="btnMyPendingBadge" class="small hidden with-icon" title="我的待审批申请">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M9 11l3 3L22 4"/>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+          审批<span id="myApproveBadge" class="badge hidden">0</span>
+        </button>
+
+        <span id="saveState" class="save-state"></span>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none">
+      </header>
+
+      <!-- ★ 表格筛选栏 -->
+      <div id="filterBar" class="filter-bar hidden">
+        <span class="filter-bar-icon">🔍</span>
+        <span class="filter-bar-label">筛选</span>
+        <span id="filterCount" class="filter-bar-count"></span>
+        <div id="filterChips" class="filter-chips"></div>
+        <button id="btnClearFilters" class="filter-clear-btn" type="button">清除全部</button>
+      </div>
+
+      <div class="table-scroll">
+        <table id="grid" class="grid"></table>
+      </div>
+    </div>
+
+    <div id="showcaseWrap" class="showcase-wrap hidden">
+      <div class="showcase-header">
+        <span class="showcase-title">
+          <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+          图表展示
+          <span id="showcaseCount" class="badge-count">0</span>
+        </span>
+        <div class="showcase-actions">
+          <button id="showcaseExitFocus" class="showcase-btn" style="display:none;"
+                  title="恢复显示表格区域">显示表格</button>
+          <button id="showcaseToggle" class="showcase-btn">收起</button>
+        </div>
+      </div>
+      <div id="showcaseDragHandle" class="showcase-drag-handle" title="拖动调整高度"></div>
+      <div id="showcaseBody" class="showcase-body"></div>
+    </div>
+  </main>
+</div>
+
+<!-- 图表弹窗 -->
+<div id="chartModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <line x1="18" y1="20" x2="18" y2="10"/>
+          <line x1="12" y1="20" x2="12" y2="4"/>
+          <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+        数据可视化
+      </h3>
+      <button class="modal-close" id="chartClose">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="chart-tabs">
+        <button class="chart-tab active" data-tab="bar">柱状图</button>
+        <button class="chart-tab" data-tab="line">折线图</button>
+        <button class="chart-tab" data-tab="area">面积图</button>
+        <button class="chart-tab" data-tab="pie">饼图</button>
+        <button class="chart-tab" data-tab="doughnut">环形图</button>
+        <button class="chart-tab" data-tab="radar">雷达图</button>
+        <button class="chart-tab" data-tab="scatter">散点图</button>
+        <button class="chart-tab" data-tab="loc">位置格</button>
+      </div>
+
+      <div id="chartPanelCatValue">
+        <div class="chart-controls">
+          <div>
+            <label>标题（可选）</label>
+            <input type="text" id="chartTitle" maxlength="100" placeholder="如：各部门金额分布">
+          </div>
+          <div>
+            <label>分类列</label>
+            <select id="chartCat"></select>
+          </div>
+          <div>
+            <label>数值列</label>
+            <select id="chartVal"></select>
+          </div>
+          <div class="tight">
+            <label>数据聚合</label>
+            <select id="chartAggregate" title="大表建议选「按分类求和」或「按分类计数」">
+              <option value="none">不聚合（每行 1 个点）</option>
+              <option value="sum">按分类求和</option>
+              <option value="avg">按分类平均</option>
+              <option value="count">按分类计数</option>
+            </select>
+          </div>
+          <div class="tight">
+            <label>最多显示</label>
+            <input type="number" id="chartTopN" min="0" max="200" value="0"
+                   placeholder="0=全部" title="0 表示不截断；建议 10~30">
+          </div>
+        </div>
+        <div class="chart-area">
+          <canvas id="chartCanvas"></canvas>
+        </div>
+        <p id="chartEmptyHint" class="chart-empty-hint hidden">数据不足：请先填写至少一行数据，且数值列包含数字。</p>
+      </div>
+
+      <div id="chartPanelScatter" class="hidden">
+        <div class="chart-controls">
+          <div>
+            <label>标题（可选）</label>
+            <input type="text" id="scatterTitle" maxlength="100" placeholder="如：金额 vs 数量">
+          </div>
+          <div>
+            <label>X 轴数值列</label>
+            <select id="scatterX"></select>
+          </div>
+          <div>
+            <label>Y 轴数值列</label>
+            <select id="scatterY"></select>
+          </div>
+        </div>
+        <div class="chart-area">
+          <canvas id="scatterCanvas"></canvas>
+        </div>
+        <p id="scatterEmptyHint" class="chart-empty-hint hidden">数据不足：请选择两个数值列，且至少有一行数据在 X、Y 均为数字。</p>
+      </div>
+
+      <div id="chartPanelLoc" class="hidden">
+        <div class="chart-controls">
+          <div>
+            <label>标题（可选）</label>
+            <input type="text" id="locTitle" maxlength="100" placeholder="如：机房机柜布局">
+          </div>
+          <div class="tight">
+            <label>行数</label>
+            <input type="number" id="locRows" min="1" max="200" value="3">
+          </div>
+          <div class="tight">
+            <label>列数</label>
+            <input type="number" id="locCols" min="1" max="200" value="6">
+          </div>
+          <div class="tight">
+            <label>行起始</label>
+            <input type="text" id="locRowStart" maxlength="4" value="A" placeholder="A">
+          </div>
+          <div class="tight">
+            <label>列起始</label>
+            <input type="text" id="locColStart" maxlength="4" value="1" placeholder="1">
+          </div>
+          <div class="tight">
+            <label>分隔符</label>
+            <input type="text" id="locSep" maxlength="2" value="" placeholder="无">
+          </div>
+        </div>
+        <div class="chart-controls">
+          <div>
+            <label>位置列</label>
+            <select id="locCol"></select>
+          </div>
+          <div>
+            <label>标签列（可选）</label>
+            <select id="locLabelCol"></select>
+          </div>
+          <div class="tight">
+            <label>&nbsp;</label>
+            <button id="locRender">生成预览</button>
+          </div>
+        </div>
+        <div id="locGrid" class="loc-grid"></div>
+        <p id="locHint" class="loc-hint hidden"></p>
+        <div id="locActions" class="loc-actions hidden">
+          <button id="locDlSvg" class="outline small">下载 SVG</button>
+          <button id="locDlPng" class="small">下载 PNG</button>
+        </div>
+      </div>
+
+      <div class="chart-modal-actions">
+        <button id="chartAddToShowcase" class="small">+ 添加到台账展示</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 单元格关联设置弹窗 -->
+<div id="linkModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+        设置单元格关联
+      </h3>
+      <button class="modal-close" id="linkClose">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 12px; color:var(--text-muted); font-size:13px;">
+        将 <strong id="linkTargetName">—</strong> 关联到：
+      </p>
+      <select id="linkSelect"
+              style="width:100%; padding:8px; margin-bottom:14px;
+                     border:1px solid var(--border); border-radius:var(--radius-sm);
+                     font-family:inherit; font-size:14px; background:#fff;">
+      </select>
+      <p style="font-size:12px; color:var(--text-light); margin:0 0 16px; line-height:1.6;">
+        关联后，所在列的表头会成为左侧台账列表中的分组折叠框，<br>
+        该台账会归入对应分支；点击单元格右上角 🔗 直接打开关联台账。
+      </p>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button id="linkCancel" class="ghost">取消</button>
+        <button id="linkSave">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 选项列编辑弹窗 -->
+<div id="optionEditorModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M9 11l3 3L22 4"/>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+        </svg>
+        设置选项列
+      </h3>
+      <button class="modal-close" id="optionEditorClose">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 10px; font-size:13px; color:var(--text-muted);">
+        列名：<strong id="optionEditorColName">—</strong>
+      </p>
+      <p style="margin:0 0 8px; font-size:12px; color:var(--text-light); line-height:1.6;">
+        每行一个选项，或用逗号分隔。最多 100 项，每项最多 100 字。<br>
+        设置后该列单元格只能从这些选项中选取，其他列仍自由填写。
+      </p>
+      <textarea id="optionEditorText" class="option-editor-text" placeholder="通过&#10;不通过&#10;待定"></textarea>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+        <button id="optionEditorCancel" class="ghost">取消</button>
+        <button id="optionEditorSave">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 单元格交互操作配置弹窗 -->
+<div id="cellActionModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
+        设置交互操作
+      </h3>
+      <button class="modal-close" id="cellActionClose">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="cellActionRowInfo" class="cell-action-info">—</div>
+
+      <label class="cell-action-label" for="cellActionName">操作名称（必填）</label>
+      <input type="text" id="cellActionName" maxlength="100"
+             placeholder="如：远程链接设备、重启设备"
+             style="width:100%; padding:9px 12px; font-size:14px;
+                    border:1px solid var(--border); border-radius:var(--radius-sm);
+                    font-family:inherit; outline:none; box-sizing:border-box; margin-bottom:14px;">
+
+      <label class="cell-action-label">随信号提交的行数据（可选，勾选要提交的列）</label>
+      <div id="cellActionFields" class="cell-action-fields"></div>
+      <p class="cell-action-hint">
+        不勾选任何列时，仅提交当前单元格；勾选列时，会把这些列在当前行的值一并提交给后端。<br>
+        左键点击单元格上的 ⚡ 直接提交；右键点击 ⚡ 打开此配置。
+      </p>
+
+      <div style="display:flex; gap:8px; justify-content:space-between; margin-top:16px;">
+        <button id="cellActionDeleteBtn" class="danger small" style="display:none;">删除配置</button>
+        <div style="display:flex; gap:8px; margin-left:auto;">
+          <button id="cellActionCancel" class="ghost">取消</button>
+          <button id="cellActionSave">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 扫码配置弹窗 -->
+<div id="scanConfigModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="7" height="7"/>
+          <rect x="14" y="3" width="7" height="7"/>
+          <rect x="3" y="14" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/>
+        </svg>
+        扫码应用配置
+      </h3>
+      <button class="modal-close" id="scanCfgClose">×</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh; overflow-y:auto;">
+
+      <div class="scan-cfg-section">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+          <h4 style="margin:0;font-size:14px;">已有应用</h4>
+          <button id="scanCfgNewBtn" class="small">+ 新建应用</button>
+        </div>
+        <div id="scanCfgAppList" class="scan-cfg-app-list"></div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
+
+      <div id="scanCfgForm" class="scan-cfg-section hidden">
+        <h4 style="margin:0 0 12px;font-size:14px;">编辑应用</h4>
+
+        <div class="scan-cfg-row">
+          <label>应用 ID（a-z 0-9 _，创建后不可改）</label>
+          <input id="scanCfgAppId" type="text" maxlength="50" placeholder="inspection">
+        </div>
+        <div class="scan-cfg-row">
+          <label>应用名称</label>
+          <input id="scanCfgName" type="text" maxlength="50" placeholder="资产巡检">
+        </div>
+        <div class="scan-cfg-row scan-cfg-row-2col">
+          <div>
+            <label>图标（emoji）</label>
+            <input id="scanCfgIcon" type="text" maxlength="4" placeholder="🔍">
+          </div>
+          <div>
+            <label>目标台账</label>
+            <select id="scanCfgLedger"></select>
+          </div>
+        </div>
+        <div class="scan-cfg-row">
+          <label>描述（可空）</label>
+          <input id="scanCfgDesc" type="text" maxlength="100" placeholder="机房设备每日巡检">
+        </div>
+
+        <h4 style="margin:20px 0 8px;font-size:14px;">
+          展示字段
+          <button id="scanCfgAddDisplay" class="small outline" style="margin-left:8px;">+ 添加</button>
+        </h4>
+        <div id="scanCfgDisplays" class="scan-cfg-list"></div>
+
+        <h4 style="margin:20px 0 8px;font-size:14px;">
+          快捷操作
+          <button id="scanCfgAddAction" class="small outline" style="margin-left:8px;">+ 添加</button>
+        </h4>
+        <div id="scanCfgActions" class="scan-cfg-list"></div>
+
+        <h4 style="margin:20px 0 8px;font-size:14px;">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-weight:inherit;">
+            <input type="checkbox" id="scanCfgAppendLogEnabled">
+            追加日志到其它台账
+          </label>
+        </h4>
+        <div id="scanCfgAppendLog" class="scan-cfg-list hidden">
+          <div class="scan-cfg-row">
+            <label>日志台账</label>
+            <select id="scanCfgLogLedger"></select>
+          </div>
+          <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
+            <label style="margin:0;">字段映射（"$col:列UUID" / "$user" / "$now" / "$action_label" / "$gid"）</label>
+            <button id="scanCfgAddField" class="small outline">+ 添加字段</button>
+          </div>
+          <div id="scanCfgFields" class="scan-cfg-list"></div>
+        </div>
+
+        <h4 style="margin:20px 0 8px;font-size:14px;">其它选项</h4>
+        <div class="scan-cfg-row scan-cfg-row-2col">
+          <label style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="scanCfgSuccessAudio"> 成功后播放音效
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;">
+            自动清空（毫秒，0=不自动）
+            <input type="number" id="scanCfgAutoClear" min="0" max="10000" value="800"
+                   style="width:100px;padding:4px 8px;">
+          </label>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;
+                    margin-top:24px;flex-wrap:wrap;gap:8px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="scanCfgDelete" class="danger small">删除此应用</button>
+            <button id="scanCfgDownloadOffline" class="outline small"
+                    title="下载本应用的单文件离线页面，拷到离线设备用"
+                    style="display:none;">📴 下载离线页面</button>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button id="scanCfgCancel" class="outline">取消</button>
+            <button id="scanCfgSave">保存</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<style>
+  .scan-cfg-row { margin-bottom: 12px; }
+  .scan-cfg-row label {
+    display: block; font-size: 12px; color: var(--text-muted);
+    margin-bottom: 4px; font-weight: 500;
+  }
+  .scan-cfg-row input[type="text"],
+  .scan-cfg-row input[type="number"],
+  .scan-cfg-row select {
+    width: 100%; padding: 8px 10px; font-size: 13px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-family: inherit;
+  }
+  .scan-cfg-row-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .scan-cfg-list { display: flex; flex-direction: column; gap: 8px; }
+  .scan-cfg-item {
+    display: flex; gap: 8px; align-items: center;
+    background: #f8fafc; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 8px 10px;
+  }
+  .scan-cfg-item select, .scan-cfg-item input {
+    flex: 1; padding: 6px 8px; font-size: 12px;
+    border: 1px solid var(--border); border-radius: 4px;
+    font-family: inherit;
+  }
+  .scan-cfg-item .label-input { flex: 0 0 120px; }
+  .scan-cfg-item .cb-label {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; white-space: nowrap; color: var(--text-muted);
+  }
+  .scan-cfg-item .del {
+    background: transparent; border: none; color: var(--danger);
+    font-size: 18px; cursor: pointer; padding: 0 6px;
+  }
+  .scan-cfg-app-list { display: flex; flex-direction: column; gap: 8px; }
+  .scan-cfg-app-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; background: #f8fafc;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .scan-cfg-app-row:hover { background: var(--primary-soft); }
+  .scan-cfg-app-icon { font-size: 22px; }
+  .scan-cfg-app-name { flex: 1; font-weight: 500; }
+  .scan-cfg-app-id { font-size: 11px; color: var(--text-light); font-family: monospace; }
+  .scan-cfg-empty { text-align: center; color: var(--text-light); padding: 20px; font-size: 13px; }
+
+  /* ============================================================
+   ★ 需求 2：附件悬浮按钮改到「左下角」，彻底避开右侧按钮
+   ============================================================ */
+  .fm-fab {
+    left: 24px !important;
+    right: auto !important;
+    bottom: 24px !important;
+    z-index: 900;
+    transition: left .24s ease, opacity .2s ease, transform .2s ease,
+                box-shadow .2s ease;
+  }
+  @media (max-height: 720px) {
+    .fm-fab { bottom: 80px !important; }
+  }
+  body:has(.main.focus-chart) .fm-fab {
+    display: none !important;
+  }
+  body.fm-drawer-open .fm-fab {
+    display: none !important;
+  }
+  .showcase-wrap { padding-bottom: 8px; }
+    /* ============================================================
+   ★ 成员与权限面板
+   ============================================================ */
+  .members-tabs {
+    display: flex; gap: 4px;
+    padding: 0 22px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .members-tab {
+    padding: 10px 16px;
+    background: transparent; border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted); font-size: 13px;
+    cursor: pointer; font-family: inherit;
+    box-shadow: none; margin-bottom: -1px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .members-tab:hover { color: var(--primary); transform: none; background: transparent; }
+  .members-tab.active {
+    color: var(--primary); border-bottom-color: var(--primary);
+    font-weight: 600; background: transparent; box-shadow: none;
+  }
+  .members-tab-badge {
+    display: inline-block; min-width: 18px; height: 18px;
+    line-height: 18px; padding: 0 6px;
+    background: var(--danger); color: #fff;
+    border-radius: 9px; font-size: 11px; font-weight: 600;
+  }
+  .members-tab-badge.hidden { display: none; }
+
+  .members-body { padding: 0; }
+  .members-pane { padding: 16px 22px; min-height: 200px; }
+  .members-pane.hidden { display: none !important; }
+
+  .members-toolbar {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 14px;
+  }
+  .members-hint { font-size: 12px; color: var(--text-muted); }
+
+  .members-list {
+    display: flex; flex-direction: column; gap: 8px;
+    margin-bottom: 20px;
+  }
+  .members-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    flex-wrap: wrap;
+  }
+  .members-avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(135deg, #a5b4fc, #818cf8);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px; flex-shrink: 0;
+  }
+  .members-avatar.is-owner {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    box-shadow: 0 2px 8px rgba(245,158,11,.4);
+  }
+  .members-avatar.is-manager {
+    background: linear-gradient(135deg, #c4b5fd, #8b5cf6);
+  }
+  .members-info { flex: 1 1 auto; min-width: 0; }
+  .members-name {
+    font-size: 14px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
+  }
+  .members-role-tag {
+    padding: 1px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 500;
+  }
+  .members-role-tag.role-owner { background: #fef3c7; color: #b45309; }
+  .members-role-tag.role-manager { background: #ede9fe; color: #6d28d9; }
+  .members-role-tag.role-member { background: #e0e7ff; color: #4338ca; }
+  .members-perms-inline {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-top: 6px;
+  }
+  .members-perm-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 10px;
+    font-size: 11px;
+    border: 1px solid transparent;
+  }
+  .members-perm-chip.on { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+  .members-perm-chip.off { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+  .members-perm-chip.mini { padding: 1px 6px; font-size: 10.5px; }
+  .members-perm-icon { font-weight: 700; }
+
+  .members-actions {
+    display: flex; gap: 6px; flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .members-form {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin: 8px 0 12px;
+  }
+  .members-form-title {
+    font-size: 13px; font-weight: 600;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+  .members-form-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 10px;
+  }
+  .members-form-row label {
+    width: 90px; flex-shrink: 0;
+    font-size: 12px; color: var(--text-muted);
+    margin: 0;
+  }
+  .members-form-row input,
+  .members-form-row select {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .members-perms-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 6px 12px;
+    margin: 10px 0;
+  }
+  .members-perm-check {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12.5px; font-weight: 400;
+    color: var(--text); cursor: pointer;
+    margin: 0;
+  }
+  .members-perm-check input { width: auto; margin: 0; cursor: pointer; }
+  .members-perm-check.denied { opacity: .55; cursor: not-allowed; }
+  .members-perm-denied {
+    color: var(--text-light);
+    font-size: 11px;
+  }
+  .members-form-actions {
+    display: flex; justify-content: flex-end; gap: 8px;
+    margin-top: 10px;
+  }
+
+  .members-mypanel {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin-top: 20px;
+  }
+  .members-mypanel-title {
+    font-size: 13px; font-weight: 600;
+    margin-bottom: 10px;
+  }
+
+  .members-requests-list {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .members-req-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+  }
+  .members-req-row1 {
+    display: flex; align-items: center; gap: 10px;
+    flex-wrap: wrap;
+  }
+  .members-req-user { font-weight: 600; font-size: 13px; }
+  .members-req-perm {
+    font-size: 12px; padding: 1px 8px;
+    background: var(--primary-soft);
+    color: var(--primary-dark);
+    border-radius: 10px;
+  }
+  .members-req-status {
+    font-size: 11px; padding: 1px 8px;
+    border-radius: 10px; font-weight: 500;
+  }
+  .members-req-status.status-pending { background: #fef3c7; color: #b45309; }
+  .members-req-status.status-approved { background: #d1fae5; color: #047857; }
+  .members-req-status.status-rejected { background: #fee2e2; color: #b91c1c; }
+  .members-req-status.status-cancelled { background: #e5e7eb; color: #6b7280; }
+  .members-req-reason {
+    font-size: 12px; color: var(--text-muted);
+    margin-top: 6px;
+  }
+  .members-req-time {
+    font-size: 11px; color: var(--text-light);
+    margin-top: 4px;
+  }
+  .members-req-review {
+    font-size: 11px; color: var(--text-muted);
+    margin-top: 4px;
+  }
+  .members-req-actions {
+    display: flex; gap: 6px;
+    margin-top: 8px;
+  }
+
+  .members-loading,
+  .members-empty,
+  .members-error {
+    padding: 30px 16px;
+    text-align: center;
+    color: var(--text-light);
+    font-size: 13px;
+  }
+  .members-error { color: var(--danger); }
+
+  /* ============================================================
+     二维码预览弹窗（无 file.upload 权限时在浏览器内展示）
+     ============================================================ */
+  .qr-preview-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+  }
+  .qr-preview-item {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 12px; background: #f8fafc;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    width: 180px; box-sizing: border-box;
+  }
+  .qr-preview-img { width: 156px; height: 156px; image-rendering: pixelated; }
+  .qr-preview-name {
+    font-size: 12px; font-weight: 600; color: var(--text);
+    word-break: break-all; text-align: center; max-width: 100%;
+  }
+  .qr-preview-gid {
+    font-size: 11px; color: var(--text-light); font-family: monospace;
+    word-break: break-all; text-align: center; max-width: 100%;
+  }
+  .qr-preview-dl {
+    font-size: 12px; color: var(--primary); text-decoration: none;
+    padding: 4px 10px; border: 1px solid var(--primary);
+    border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .qr-preview-dl:hover { background: var(--primary-soft); }
+  .qr-preview-empty {
+    width: 100%; text-align: center;
+    color: var(--text-light); padding: 24px; font-size: 13px;
+  }
+
+  /* ============================================================
+     二维码模板设置弹窗
+     ============================================================ */
+  .qr-template-field { margin-bottom: 14px; }
+  .qr-template-label { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .qr-template-cols {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    max-height: 140px; overflow-y: auto;
+    padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: #f8fafc;
+  }
+  .qr-template-col {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; color: var(--text);
+    padding: 3px 8px; border: 1px solid var(--border);
+    border-radius: 999px; background: #fff; cursor: pointer;
+  }
+  .qr-template-col input { margin: 0; }
+  .qr-template-hint { font-size: 12px; color: var(--text-light); padding: 8px; }
+  .qr-template-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-bottom: 12px;
+  }
+  .qr-template-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
+  .qr-template-inline select { padding: 4px 8px; font-size: 13px; }
+  .qr-template-check { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text); cursor: pointer; }
+  .qr-template-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    margin-bottom: 14px;
+  }
+  .qr-template-grid label {
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 12px; color: var(--text-light);
+  }
+  .qr-template-grid input { padding: 4px 6px; font-size: 13px; }
+  .qr-template-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+</style>
+
+<!-- 二维码预览弹窗（无附件上传权限时在浏览器内展示） -->
+<div id="qrPreviewModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="7" height="7"/>
+          <rect x="14" y="3" width="7" height="7"/>
+          <rect x="3" y="14" width="7" height="7"/>
+          <path d="M14 14h3v3h-3z"/>
+          <path d="M21 14v.01M21 21v.01M14 21v.01"/>
+        </svg>
+        二维码
+      </h3>
+      <button class="modal-close" id="qrPreviewClose">×</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh; overflow-y:auto;">
+      <p style="margin:0 0 12px; font-size:12px; color:var(--text-muted);">
+        你没有附件上传权限，二维码仅在浏览器内展示，可点击「下载 PNG」保存。
+      </p>
+      <div id="qrPreviewList" class="qr-preview-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 二维码模板设置弹窗 -->
+<div id="qrTemplateModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M4 7h16M4 12h16M4 17h10"/>
+        </svg>
+        二维码模板设置
+      </h3>
+      <button class="modal-close" id="qrTemplateClose">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="qr-template-field">
+        <div class="qr-template-label">附加列内容（可多选）</div>
+        <div id="qrTemplateCols" class="qr-template-cols"></div>
+      </div>
+      <div class="qr-template-row">
+        <label class="qr-template-inline">
+          <span>文字位置</span>
+          <select id="qrTemplatePos">
+            <option value="bottom">二维码下方</option>
+            <option value="top">二维码上方</option>
+          </select>
+        </label>
+        <label class="qr-template-check">
+          <input type="checkbox" id="qrTemplateShowHeader"> 显示列名
+        </label>
+      </div>
+      <div class="qr-template-grid">
+        <label><span>二维码大小</span><input type="number" id="qrTemplateScale" min="1" max="20" step="1"></label>
+        <label><span>静区</span><input type="number" id="qrTemplateQuiet" min="0" max="8" step="1"></label>
+        <label><span>字号</span><input type="number" id="qrTemplateFont" min="8" max="48" step="1"></label>
+        <label><span>边距</span><input type="number" id="qrTemplateMargin" min="0" max="80" step="1"></label>
+        <label><span>间距</span><input type="number" id="qrTemplateGap" min="0" max="40" step="1"></label>
+      </div>
+      <div class="qr-template-actions">
+        <button class="outline small" id="qrTemplateCancel">取消</button>
+        <button class="small" id="qrTemplateSave">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 批量打印二维码配置弹窗 -->
+<div id="batchPrintModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <h3 class="modal-title">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+          <path d="M6 14h12v7H6z"/>
+        </svg>
+        批量打印二维码
+      </h3>
+      <button class="modal-close" id="bpClose">×</button>
+    </div>
+    <div class="modal-body" style="max-height:76vh; overflow-y:auto;">
+      <p style="margin:0 0 14px; font-size:12px; color:var(--text-muted);">
+        为当前勾选的行生成二维码标签，直接从浏览器唤起打印。二维码内容与扫码终端一致（L{台账ID}_{行标识}）。
+      </p>
+      <div class="bp-grid">
+        <div class="bp-field bp-full">
+          <label class="bp-label">标签标题（所有标签统一，可留空）</label>
+          <input type="text" id="bpTitle" class="bp-input" placeholder="例如：资产标签 / 设备编号" maxlength="60">
+        </div>
+        <div class="bp-field bp-full">
+          <label class="bp-label">打印字段（可多选，显示在二维码下方）</label>
+          <div id="bpFields" class="bp-fields"></div>
+        </div>
+        <div class="bp-field">
+          <label class="bp-label">纸张大小</label>
+          <select id="bpPaper" class="bp-input"></select>
+        </div>
+        <div class="bp-field bp-custom" id="bpPaperCustom" style="display:none;">
+          <label class="bp-label">自定义纸张 (mm)</label>
+          <div class="bp-two">
+            <input type="number" id="bpPaperW" class="bp-input" min="20" max="2000" step="1" value="210" placeholder="宽">
+            <span class="bp-x">×</span>
+            <input type="number" id="bpPaperH" class="bp-input" min="20" max="2000" step="1" value="297" placeholder="高">
+          </div>
+        </div>
+        <div class="bp-field">
+          <label class="bp-label">标签模板</label>
+          <select id="bpLabelPreset" class="bp-input">
+            <option value="40x30">40 × 30 mm</option>
+            <option value="50x30">50 × 30 mm</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+        <div class="bp-field bp-custom" id="bpLabelCustom" style="display:none;">
+          <label class="bp-label">自定义标签 (mm)</label>
+          <div class="bp-two">
+            <input type="number" id="bpLabelW" class="bp-input" min="10" max="500" step="1" value="40" placeholder="宽">
+            <span class="bp-x">×</span>
+            <input type="number" id="bpLabelH" class="bp-input" min="10" max="500" step="1" value="30" placeholder="高">
+          </div>
+        </div>
+      </div>
+      <div class="bp-field bp-full" style="margin-top:14px;">
+        <label class="bp-label">标签预览</label>
+        <div id="bpPreview" class="bp-preview"></div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:8px; padding:12px 20px;">
+      <button class="outline small" id="bpCancel">取消</button>
+      <button class="small" id="bpPrint" title="从浏览器唤起打印对话框">打印</button>
+    </div>
+  </div>
+</div>
+
+<div id="ctxMenu" class="ctx-menu hidden"></div>
+<div id="optionMenu" class="option-menu hidden"></div>
+<div id="actionToast" class="action-toast"></div>
+
+<script src="{{ url_for('static', filename='editor-core.js') }}"></script>
+<script src="{{ url_for('static', filename='editor-grid.js') }}"></script>
+<script src="{{ url_for('static', filename='editor-loc.js') }}"></script>
+<script src="{{ url_for('static', filename='editor-chart.js') }}"></script>
+<script src="{{ url_for('static', filename='editor-cells.js') }}"></script>
+<script src="{{ url_for('static', filename='editor-ledger.js') }}"></script>
+<script src="{{ url_for('static', filename='editor-scan-config.js') }}"></script>
+<script src="{{ url_for('static', filename='editor-main.js') }}"></script>
+<script src="{{ url_for('static', filename='file-manager.js') }}"></script>
+<script src="{{ url_for('static', filename='editor-qr.js') }}"></script>
+<script src="{{ url_for('static', filename='editor-members.js') }}"></script>
+</body>
+</html>

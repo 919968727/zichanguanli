@@ -1,0 +1,75 @@
+---
+description: LedgerEditorV5 项目核心契约：技术栈、分层、数据模型、权限模型、核心机制与二次开发硬性约束。任何涉及本项目的代码改动都必须遵守。
+alwaysApply: true
+enabled: true
+provider:
+---
+
+# LedgerEditorV5 项目契约
+
+本项目是单机台账管理 Web 应用：Flask + SQLite（5 库 / WAL）+ Waitress，前端原生 JS 无构建，PyInstaller 打包。所有改动必须遵守以下契约，让代码始终长在同一套骨架上。
+
+## 1. 技术栈（锁定，未经确认不得升级或引入新依赖）
+- Python 3.8+；源码 UTF-8；项目自带两份 `.md` 说明文档是 **GBK 编码**（终端文件名为乱码），读取时指定 `encoding='gbk'`。
+- Flask（路由/模板/Session）、Waitress（WSGI）、cryptography（自签 HTTPS）。
+- SQLite3 WAL，5 个独立库。前端原生 JS + XLSX.js + Chart.js + jsQR + qrcode-gen，**无 npm、无构建**。
+- `requirements.txt` 仅 flask/waitress/cryptography/werkzeug，极简是刻意设计，新依赖先确认。
+
+## 2. 代码结构与职责（新增代码落到对应位置）
+- `Main.py`：入口 `create_app`/`service`，不改启动流程除非明确要求。
+- `Service.py`：全部 HTTP 路由与页面渲染（`create_app` 工厂），只做编排/校验/审计，不写复杂数据逻辑、不直接写 SQL。
+- `UseSqlite.py`：唯一数据访问层（约 3200 行），建表/迁移/CRUD/权限/审计/附件/归档。所有 DB 操作必须经这里。
+- `path_helper.py`：`resource_path`（只读静态资源）/ `data_path`（可写数据，exe 同级）；数据文件必须走 `data_path`。
+- `scan_apps.py`：扫码应用配置（每应用一个 json，每请求现读）。
+- `static/*.js`：按功能分模块（editor-core / grid / cells / ledger / members / chart / qr / scan-config / file-manager / dashboard / scan*），新功能放对应模块，不塞进一个巨文件。
+- `templates/*.html`：Jinja2 页面。
+- 命名：Python `snake_case`，前端 JS `camelCase`，路由统一 `/api/...` 返回 JSON。
+
+## 3. 数据模型（5 库职责不可混用）
+| 库 | 内容 |
+|---|---|
+| LedgerEditor.db | 用户、审计日志、成员、权限申请 |
+| Ledger.db | 台账业务数据（data/column_ids/column_options/charts/cell_actions 等 JSON 列）、ledger_members、permission_requests |
+| Archive.db | 归档行（回收站） |
+| file.db | 附件 BLOB |
+| Offline.db | 离线扫码上传缓存 |
+
+- 台账 `data` 是二维列表，首行表头，第 0 列固定 `UUID_SENTINEL='__uuid__'`；每行首列是 32 位 uuid（稳定行标识）。
+- JSON 字段入库前经规范化 / `_safe_json` 清洗（参考 `Service.py` 的 `_normalize_*`）。
+- 禁止物理删除台账业务行（删行走归档）；禁止改动已有字段语义。
+- 改表结构必须写迁移函数并在对应 `init_xxx_db()` 调用，保证旧库可升级。
+
+## 4. 权限模型（复用，不得另起一套）
+- 10 个权限键：`data.view`/`data.edit`/`data.delete`/`file.upload`/`file.download`/`qr.generate`/`export`/`member.manage`/`member.approve`/`log.view`。
+- 角色 owner/manager/member + 内置 root（全权限）。
+- `Service.py` 用 `_perm`/`_can_access`/`_can_edit`/`_is_owner`/`_is_manager_or_above`/`_grant_check` 校验。
+- 新增接口顺序：登录校验 → `get_ledger_by_id` → 权限校验 → 业务操作；失败返回 `{'msg':...}` + 401/403/404/400。
+- 每次写操作后调用 `_audit(...)` 留审计。
+
+## 5. 核心机制（改相关代码前必须理解）
+- CSRF：`before_request` 校验 `X-CSRF-Token`。
+- 乐观锁：保存带 `expected_updated_at`，冲突返回 409 + `current_updated_at`。已知缺陷：`updated_at` 秒级精度，同一秒内两次保存可绕过冲突检测并误归档（修复首选独立整数 version 字段）。
+- 写队列：`update_ledger` 走后台 writer 线程，繁忙返回 `status='busy'` → 429 + `Retry-After: 2`。
+- 审计异步落库；备份后台线程 5 档快照。
+- 扫码 gid 格式 `L<ledger_id>_<32位uuid>`，动作当前仅 `set_value`，追加日志目标必须是关联子台账。
+- 单元格交互 `Service.py` 的 `_SAMPLE_INTERACT_RESPONSES` 是写死的假响应（demo 桩）。
+- 台账日志 `api_ledger_logs` 是简化实现（取最新 500 条内存过滤，超量会缺失）。
+- 前端：批量操作条常驻显示（`.batch-bar`），无选中时"开始/取消选择"禁用；侧栏支持收起（`.layout.sidebar-collapsed`，localStorage 持久化）。
+- **登录落地页 = 观测台 `/dashboard`**：由三处决定，改动必须同步——`Service.py` 的 `/` 路由、`_safe_next` 默认值、登录接口 `login` 显式传的 default（L477）、`index.html` 登录成功 fallback。任一处漏改会导致登录后跳错页。
+- 侧栏是功能菜单：顶部"观测台"入口（第一个）+ "台账列表"可折叠分组（`#groupLedgers` / `#groupLedgersToggle`，localStorage key `ledgerMenuGroupCollapsed`）。台账列表本身是分组内的一块，不是侧栏全部。
+
+## 6. 已有能力清单（先复用，勿重复实现）
+- 用户注册审批、权限申请审批；Excel 导入导出（XLSX.js）；图表（Chart.js）；二维码/扫码（qrcode-gen.js/jsQR.js）；附件上传下载；归档回收站；态势大屏。
+
+## 7. 二次开发硬性约束
+1. 不破坏现有 API 入参/出参结构（前端强依赖）。
+2. 不改已有表结构语义；变更走迁移函数。
+3. 不在 `Service.py` 写 SQL，不在 `UseSqlite.py` 写路由。
+4. 新依赖先确认。5. 写操作必留审计。
+6. 每次改动结束列出：改动文件清单、影响的路由/前端调用、实际验证方式与结果。
+7. 数据写 `data_path`。8. 小步改动，每步可运行。
+
+## 8. 工作方式
+- 陌生改动先读相关实现与调用方，理解后再动手，沿用现有模式。
+- 前端改动后用真实浏览器验证（本机可用 agent-browser）；后端改动实际发请求核对状态码与数据。
+- 区分观察、推断、未验证；不虚构验证结果。

@@ -1,0 +1,359 @@
+/* ============================================================
+   态势大屏 dashboard.css —— 深色科技风
+   布局：顶栏 + 左侧图表配置面板 + 主区多图表矩阵（一屏多台账）
+   ============================================================ */
+
+:root {
+  --ds-bg: #050a18;
+  --ds-bg-2: #0a1226;
+  --ds-panel: rgba(11, 22, 44, 0.72);
+  --ds-border: rgba(56, 189, 248, 0.22);
+  --ds-border-strong: rgba(34, 211, 238, 0.55);
+  --ds-text: #dbe7f5;
+  --ds-text-dim: #7c8db5;
+  --ds-cyan: #22d3ee;
+  --ds-indigo: #818cf8;
+  --ds-glow: rgba(34, 211, 238, 0.35);
+  --ds-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--ds-bg);
+  color: var(--ds-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  overflow: hidden;
+}
+
+/* ---------- 背景动效 ---------- */
+.ds-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 500px at 50% -10%, rgba(34, 211, 238, 0.12), transparent 60%),
+    radial-gradient(900px 600px at 100% 100%, rgba(129, 140, 248, 0.10), transparent 55%),
+    linear-gradient(rgba(56, 189, 248, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.045) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 44px 44px, 44px 44px;
+  animation: ds-grid-drift 24s linear infinite;
+}
+@keyframes ds-grid-drift {
+  from { background-position: 0 0, 0 0, 0 0, 0 0; }
+  to   { background-position: 0 0, 0 0, 0 44px, 44px 0; }
+}
+
+/* 顶部扫描线 */
+.ds-scan {
+  position: fixed;
+  left: 0; right: 0; height: 2px;
+  z-index: 1;
+  background: linear-gradient(90deg, transparent, var(--ds-cyan), transparent);
+  opacity: 0.35;
+  animation: ds-scan 7s linear infinite;
+  pointer-events: none;
+}
+@keyframes ds-scan {
+  0% { top: 0; }
+  100% { top: 100%; }
+}
+
+/* ---------- 外壳（固定区域） ---------- */
+.ds-shell {
+  position: relative;
+  z-index: 2;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: 62px 1fr;
+  grid-template-columns: 300px 1fr;
+}
+.ds-shell.collapsed { grid-template-columns: 1fr; }
+.ds-shell.collapsed .ds-side { display: none; }
+
+/* ---------- 顶栏 ---------- */
+.ds-topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--ds-border);
+  background: linear-gradient(180deg, rgba(15, 30, 60, 0.85), rgba(7, 14, 30, 0.55));
+  backdrop-filter: blur(6px);
+}
+.ds-title {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: #eef6ff;
+  text-shadow: 0 0 14px var(--ds-glow);
+}
+.ds-title .en {
+  margin-left: 10px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 2px;
+  color: var(--ds-text-dim);
+  text-shadow: none;
+}
+.ds-top-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.ds-clock {
+  font-family: var(--ds-font-mono);
+  font-size: 15px;
+  color: var(--ds-cyan);
+  letter-spacing: 1px;
+}
+.ds-user { color: var(--ds-text-dim); }
+.ds-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--ds-cyan);
+  background: rgba(34, 211, 238, 0.06);
+  border: 1px solid var(--ds-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.ds-btn:hover {
+  background: rgba(34, 211, 238, 0.14);
+  border-color: var(--ds-border-strong);
+  box-shadow: 0 0 10px var(--ds-glow);
+}
+.ds-btn-primary {
+  color: #04121f;
+  background: linear-gradient(135deg, #22d3ee, #38bdf8);
+  border-color: transparent;
+  font-weight: 600;
+}
+.ds-btn-primary:hover {
+  color: #04121f;
+  background: linear-gradient(135deg, #67e8f9, #7dd3fc);
+  border-color: transparent;
+}
+.ds-link {
+  color: var(--ds-text-dim);
+  text-decoration: none;
+  font-size: 13px;
+}
+.ds-link:hover { color: var(--ds-text); }
+
+/* ---------- 左侧配置面板 ---------- */
+.ds-side {
+  grid-row: 2;
+  overflow-y: auto;
+  border-right: 1px solid var(--ds-border);
+  background: rgba(7, 14, 30, 0.45);
+}
+.ds-side-title {
+  padding: 14px 14px 4px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--ds-text-dim);
+  text-transform: uppercase;
+}
+.ds-side-hint {
+  padding: 4px 14px 10px;
+  font-size: 11px;
+  color: #55678f;
+  line-height: 1.6;
+}
+.ds-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 14px 18px;
+}
+.ds-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ds-text-dim);
+}
+.ds-form select,
+.ds-form input {
+  width: 100%;
+  padding: 7px 8px;
+  font-size: 13px;
+  color: var(--ds-text);
+  background: #0b1830;
+  border: 1px solid var(--ds-border);
+  border-radius: 4px;
+  outline: none;
+}
+.ds-form select:focus,
+.ds-form input:focus { border-color: var(--ds-border-strong); }
+.ds-form-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 主区：多图表矩阵 ---------- */
+.ds-main {
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+}
+.ds-chart-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+  /* 4 列栅格：卡片通过 spanW/spanH 决定占几列几行 */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: 280px;
+}
+/* 窄屏降级为 2 列 / 1 列，避免 span 溢出 */
+@media (max-width: 1200px) {
+  .ds-chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
+  .ds-chart-grid { grid-template-columns: 1fr; }
+}
+.ds-chart-grid.drag-active .ds-chart-card { transition: opacity .12s; }
+.ds-chart-card.drag-over {
+  outline: 2px dashed var(--ds-cyan);
+  outline-offset: -3px;
+}
+.ds-chart-card.dragging { opacity: .35; }
+
+/* ---------- 面板通用 ---------- */
+.ds-panel {
+  position: relative;
+  border: 1px solid var(--ds-border);
+  border-radius: 6px;
+  background: var(--ds-panel);
+  backdrop-filter: blur(4px);
+}
+.ds-panel::before,
+.ds-panel::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+.ds-panel::before {
+  top: -1px; left: -1px;
+  border-top: 2px solid var(--ds-cyan);
+  border-left: 2px solid var(--ds-cyan);
+}
+.ds-panel::after {
+  bottom: -1px; right: -1px;
+  border-bottom: 2px solid var(--ds-indigo);
+  border-right: 2px solid var(--ds-indigo);
+}
+
+/* ---------- 图表卡片 ---------- */
+.ds-chart-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.ds-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 4px;
+  cursor: grab;
+  user-select: none;
+}
+.ds-chart-head:active { cursor: grabbing; }
+.ds-drag-handle {
+  font-size: 13px;
+  color: var(--ds-text-dim);
+  letter-spacing: -2px;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+.ds-form-row { display: flex; gap: 10px; }
+.ds-form-row > label { flex: 1; min-width: 0; }
+.ds-chart-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #eaf4ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ds-chart-tools {
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity .15s;
+  flex-shrink: 0;
+}
+.ds-chart-card:hover .ds-chart-tools { opacity: 1; }
+.ds-mini {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--ds-text-dim);
+  background: rgba(34, 211, 238, 0.06);
+  border: 1px solid var(--ds-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ds-mini:hover {
+  color: var(--ds-cyan);
+  border-color: var(--ds-border-strong);
+}
+.ds-chart-sub {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 0 12px 6px;
+  font-size: 11px;
+  color: var(--ds-text-dim);
+}
+.ds-ledger-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: #9db4d8;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 999px;
+}
+.ds-span-tag {
+  font-size: 10px;
+  color: var(--ds-text-dim);
+  opacity: .8;
+}
+.ds-chart-wrap {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 12px 12px;
+  position: relative;
+}
+.ds-chart-wrap canvas { width: 100% !important; height: 100% !important; }
+
+.ds-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--ds-text-dim);
+  font-size: 14px;
+}
+
+.hidden { display: none !important; }

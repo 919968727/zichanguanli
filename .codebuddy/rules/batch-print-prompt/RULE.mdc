@@ -1,0 +1,27 @@
+---
+description: 批量操作改造（下拉+开始按钮、批量删除、批量打印二维码）的定制提示词与已确认需求决策。当涉及批量操作、批量打印二维码、标签打印功能时加载。
+alwaysApply: false
+enabled: true
+provider:
+---
+
+# 批量操作改造提示词
+
+当涉及批量操作或批量打印二维码的开发/修改时加载；完整提示词见项目根目录 `BATCH_OPERATIONS_PROMPT.md`。
+
+## 已确认需求决策
+1. 标签标题：所有标签统一，不做逐行取列。
+2. 二维码内容：保持 `L{lid}_{row_uuid}`，与扫码终端兼容，不重新设计。
+3. 原"批量改值"保留为下拉第三项，防止功能丢失。
+4. 纸张：默认 A4，下拉可选 A0~A6 / B0~B6 / Letter / Legal / Tabloid / Ledger + 自定义；标签预设 40×30 / 50×30mm。
+
+## 当前实现落点（已实现）
+- `templates/editor.html`：`#batchBar` 常驻；`#batchAction` 下拉（print/delete/setvalue）、`#btnBatchStart`；`#batchPrintModal` 配置弹窗。
+- `static/editor-main.js`：`updateBatchBar()` / `syncBatchActionUI()`，无选中时禁用开始/取消选择；打印通过 `window.BatchPrint.open()` 延迟调用。
+- `static/editor-qr.js`：`renderQrCard(gid,rowIdx,tplOverride)` 支持模板覆盖；`window.BatchPrint` 模块（PAPER_SIZES、配置持久化 `ledger_batch_print_v1`、预览、隐藏 iframe + `@page` mm 排版分页 + `window.print()`）。
+- `static/editor.css`：`.batch-bar` 及 `.bp-*` 弹窗样式。
+
+## 复用要点
+- 选中行用 `getSelectedRowIndexes()` / `selectedRowCount()`，按行 UUID 而非行号。
+- 打印排版用 mm 单位 + `@page size`，A4 每页 36 张 / A3 每页 72 张（40×30 标签）。
+- 打印物理尺寸需真实浏览器确认，headless 无法弹系统打印框。

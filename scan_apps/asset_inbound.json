@@ -1,0 +1,98 @@
+{
+  "name": "资产入库",
+  "icon": "📦",
+  "description": "扫描设备二维码，快速标记入库 / 维修 / 报废，并自动记入出入库流水",
+  "ledger_id": 2,
+  "display": [
+    {
+      "col": "6c9ec7b132184082836c5a41f3447821",
+      "label": "资产编号",
+      "highlight": true
+    },
+    {
+      "col": "ce264298c2bd461495ab3929383460b0",
+      "label": "设备名称"
+    },
+    {
+      "col": "a6d214dc47f84891ab485fe627b072f0",
+      "label": "设备类型"
+    },
+    {
+      "col": "5238259aed8442448621403a9692a1ba",
+      "label": "品牌"
+    },
+    {
+      "col": "6907627057994bf8bb8522d3b890b589",
+      "label": "所属机房"
+    },
+    {
+      "col": "84b4b16b9a6c4aa4a9481ae1c02f3df7",
+      "label": "机柜"
+    },
+    {
+      "col": "b4cf915aeb0148c0afd4b8ff6374465a",
+      "label": "负责人"
+    },
+    {
+      "col": "88b247293f56464db327f8410e3757ae",
+      "label": "当前状态",
+      "highlight": true
+    }
+  ],
+  "actions": [
+    {
+      "id": "inbound",
+      "label": "入库（在用）",
+      "type": "set_value",
+      "col": "88b247293f56464db327f8410e3757ae",
+      "value_type": "fixed",
+      "value": "在用",
+      "confirm": false
+    },
+    {
+      "id": "lend",
+      "label": "借出（闲置）",
+      "type": "set_value",
+      "col": "88b247293f56464db327f8410e3757ae",
+      "value_type": "fixed",
+      "value": "闲置",
+      "confirm": true
+    },
+    {
+      "id": "repair",
+      "label": "送修",
+      "type": "set_value",
+      "col": "88b247293f56464db327f8410e3757ae",
+      "value_type": "fixed",
+      "value": "维修中",
+      "confirm": true
+    },
+    {
+      "id": "scrap",
+      "label": "报废",
+      "type": "set_value",
+      "col": "88b247293f56464db327f8410e3757ae",
+      "value_type": "fixed",
+      "value": "报废",
+      "danger": true,
+      "confirm": true
+    }
+  ],
+  "append_log": {
+    "enabled": true,
+    "ledger_id": 3,
+    "fields": {
+      "单号": "",
+      "日期": "$now",
+      "类型": "入库",
+      "设备名称": "$col:ce264298c2bd461495ab3929383460b0",
+      "设备类型": "$col:a6d214dc47f84891ab485fe627b072f0",
+      "数量": "1",
+      "操作员": "$user",
+      "资产编号": "$col:6c9ec7b132184082836c5a41f3447821",
+      "备注": "扫码 · $action_label"
+    }
+  },
+  "success_audio": true,
+  "auto_clear_after_ms": 800
+}

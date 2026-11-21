@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>观测台</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
+</head>
+<body>
+
+<div class="ds-bg"></div>
+<div class="ds-scan"></div>
+
+<div class="ds-shell" id="dsShell">
+  <header class="ds-topbar">
+    <div class="ds-title">
+      观测台<span class="en">OBSERVATORY</span>
+    </div>
+    <div class="ds-top-right">
+      <span class="ds-clock" id="dsClock">--:--:--</span>
+      <span class="ds-user">当前用户：{{ username }}</span>
+      <button class="ds-btn" id="dsSideToggle">配置面板</button>
+      <button class="ds-btn" id="dsRefresh">刷新数据</button>
+      <button class="ds-btn" id="dsFullscreen">全屏</button>
+      <button class="ds-btn" id="dsResetLayout" title="恢复自动布局：清空布局并重新排布">重置布局</button>
+      <a class="ds-link" href="/editor">台账管理</a>
+    </div>
+  </header>
+
+  <aside class="ds-side">
+    <div class="ds-side-title">图表配置</div>
+    <div class="ds-side-hint">选择台账与数据列，添加图表到大屏；每张图表可独立设置/删除</div>
+    <div class="ds-form">
+      <label>台账
+        <select id="dsLedgerSel"></select>
+      </label>
+      <label>分类列
+        <select id="dsCatCol"></select>
+      </label>
+      <label>数值列
+        <select id="dsValCol"></select>
+      </label>
+      <label>统计方式
+        <select id="dsAgg">
+          <option value="none">不聚合（逐行）</option>
+          <option value="sum">求和</option>
+          <option value="avg">平均</option>
+          <option value="count">计数</option>
+        </select>
+      </label>
+      <label>Top N（0 = 全部）
+        <input type="number" id="dsTopN" min="0" max="200" step="1" value="0">
+      </label>
+      <label>图表类型
+        <select id="dsChartType">
+          <option value="bar" selected>柱状图</option>
+          <option value="line">折线图</option>
+          <option value="area">面积图</option>
+          <option value="pie">饼图</option>
+          <option value="doughnut">环形图</option>
+          <option value="radar">雷达图</option>
+        </select>
+      </label>
+      <label>标题（留空自动生成）
+        <input type="text" id="dsTitle" maxlength="100" placeholder="如：资产状态分布">
+      </label>
+      <div class="ds-form-row">
+        <label>宽度（占列数）
+          <select id="dsSpanW">
+            <option value="1">1 列（1/4）</option>
+            <option value="2" selected>2 列（1/2）</option>
+            <option value="3">3 列（3/4）</option>
+            <option value="4">4 列（整行）</option>
+          </select>
+        </label>
+        <label>高度（占行数）
+          <select id="dsSpanH">
+            <option value="1" selected>1 行</option>
+            <option value="2">2 行</option>
+            <option value="3">3 行</option>
+          </select>
+        </label>
+      </div>
+      <div class="ds-side-hint" style="padding:0;">提示：图表卡片可直接拖动标题栏调整顺序，尺寸会随布局保存。</div>
+      <div class="ds-form-actions">
+        <button class="ds-btn ds-btn-primary" id="dsAddChart">添加图表</button>
+        <button class="ds-btn ds-btn-primary hidden" id="dsSaveChart">保存修改</button>
+        <button class="ds-btn hidden" id="dsCancelEdit">取消</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="ds-main">
+    <div class="ds-chart-grid" id="dsGrid"></div>
+  </main>
+</div>
+
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>

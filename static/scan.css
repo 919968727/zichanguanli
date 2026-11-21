@@ -1,0 +1,157 @@
+* { box-sizing: border-box; }
+
+.scan-body {
+  margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+  background: #0f172a; color: #f1f5f9;
+  font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 16px;
+}
+
+/* ---------- 顶栏 ---------- */
+.scan-topbar {
+  height: 56px; display: flex; align-items: center; padding: 0 16px;
+  background: #1e293b; border-bottom: 1px solid #334155;
+  flex-shrink: 0;
+}
+.scan-back { color: #94a3b8; font-size: 26px; text-decoration: none; padding: 0 10px; }
+.scan-title { flex: 1; text-align: center; font-weight: 600; font-size: 17px; }
+.scan-logout {
+  background: transparent; border: 1px solid #475569; color: #cbd5e1;
+  padding: 6px 14px; border-radius: 6px; font-size: 14px; cursor: pointer;
+}
+
+/* ---------- 主区域 ---------- */
+.scan-main { flex: 1; padding: 20px 16px; overflow-y: auto; }
+@media (min-width: 700px) { .scan-main { max-width: 640px; margin: 0 auto; } }
+
+/* ---------- 应用选择器（scan-home.html 使用） ---------- */
+.scan-home-title {
+  color: #94a3b8; font-size: 14px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 1px;
+  margin: 8px 0 16px;
+}
+.scan-apps { display: flex; flex-direction: column; gap: 12px; }
+.scan-app-card {
+  display: flex; align-items: center; gap: 14px;
+  background: #1e293b; border: 1px solid #334155; border-radius: 14px;
+  padding: 18px; text-decoration: none; color: inherit;
+  transition: all .15s;
+}
+.scan-app-card:active { background: #293548; transform: scale(0.99); }
+.scan-app-icon { font-size: 32px; }
+.scan-app-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.scan-app-name { font-size: 17px; font-weight: 600; }
+.scan-app-desc { color: #94a3b8; font-size: 13px; }
+.scan-app-arrow { color: #64748b; font-size: 28px; }
+.scan-empty-state {
+  text-align: center; color: #64748b; padding: 60px 20px; line-height: 2;
+}
+
+/* ---------- 扫码按钮 ---------- */
+.scan-input-area { margin-bottom: 24px; }
+.scan-big-btn {
+  width: 100%; padding: 32px 20px; border: none; border-radius: 16px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff; font-size: 20px; font-weight: 600;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  cursor: pointer; box-shadow: 0 10px 32px rgba(99,102,241,.5);
+}
+.scan-big-btn:active { transform: scale(0.98); }
+.scan-cam-icon { width: 44px; height: 44px; stroke: #fff; stroke-width: 2; fill: none; }
+.scan-hint { text-align: center; color: #64748b; font-size: 13px; margin-top: 12px; }
+
+/* ---------- 结果卡片 ---------- */
+.scan-card-area { margin-bottom: 24px; }
+.scan-card {
+  background: #1e293b; border: 1px solid #334155;
+  border-radius: 16px; padding: 20px;
+  box-shadow: 0 10px 32px rgba(0,0,0,.35);
+}
+.scan-card-status {
+  display: inline-block; padding: 4px 14px;
+  border-radius: 12px; font-size: 13px;
+  font-weight: 600; margin-bottom: 18px;
+  background: #334155; color: #94a3b8;
+}
+.scan-card-status.ok    { background: #065f46; color: #6ee7b7; }
+.scan-card-status.warn  { background: #78350f; color: #fcd34d; }
+.scan-card-status.error { background: #7f1d1d; color: #fca5a5; }
+.scan-card-fields {
+  display: grid; grid-template-columns: 96px 1fr; gap: 10px 16px;
+  margin: 0 0 20px;
+}
+.scan-card-fields dt { color: #94a3b8; font-size: 14px; }
+.scan-card-fields dd { margin: 0; word-break: break-word; }
+.scan-card-fields dd.highlight { color: #60a5fa; font-weight: 600; font-size: 18px; }
+.scan-card-actions {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+.scan-action-btn {
+  padding: 18px 10px; border-radius: 12px; min-height: 58px;
+  border: 2px solid #475569; background: #334155;
+  color: #f1f5f9; font-size: 16px; font-weight: 600;
+  cursor: pointer;
+}
+.scan-action-btn:active { transform: scale(0.96); }
+.scan-action-btn.danger {
+  background: #7f1d1d; border-color: #dc2626; color: #fecaca;
+}
+.scan-no-actions {
+  grid-column: 1/-1; text-align: center;
+  color: #64748b; padding: 10px; font-size: 14px;
+}
+
+/* ---------- 本次记录 ---------- */
+.scan-history-wrap { margin-top: 12px; }
+.scan-history-title {
+  color: #94a3b8; font-size: 13px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 1px;
+  margin: 0 0 10px;
+}
+.scan-history { list-style: none; padding: 0; margin: 0; }
+.scan-history-item {
+  display: flex; gap: 10px; padding: 10px 0;
+  border-bottom: 1px solid #334155; font-size: 13.5px;
+}
+.scan-history-item .time { color: #64748b; min-width: 56px; font-family: monospace; }
+.scan-history-item .title { color: #cbd5e1; flex: 1; font-family: monospace; }
+.scan-history-item .result { color: #6ee7b7; }
+.scan-history-item.error .result { color: #fca5a5; }
+.scan-empty { color: #64748b; text-align: center; padding: 20px; list-style: none; }
+
+/* ---------- 摄像头弹层 ----------
+ * 用 top/right/bottom/left 而不是 inset:0，
+ * 后者在旧 Android WebView 里可能不生效，导致弹层塌陷。
+ */
+.scan-cam-modal {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: #000; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.scan-cam-reader { width: 100%; max-width: 500px; }
+.scan-cam-close {
+  position: absolute; top: 20px; right: 20px;
+  width: 48px; height: 48px; border-radius: 50%;
+  background: rgba(255,255,255,.2); color: #fff;
+  border: none; font-size: 22px; cursor: pointer;
+}
+
+/* ---------- Toast ---------- */
+.scan-toast {
+  position: fixed; bottom: 32px; left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  padding: 14px 28px; border-radius: 12px;
+  background: #334155; color: #fff;
+  font-size: 15px; font-weight: 500;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5);
+  opacity: 0; pointer-events: none;
+  transition: all .25s; z-index: 2000;
+  max-width: 90vw; text-align: center;
+}
+.scan-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.scan-toast.success { background: #059669; }
+.scan-toast.error { background: #dc2626; }
+
+.hidden { display: none !important; }

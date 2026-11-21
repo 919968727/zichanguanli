@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>扫码终端 · 登录</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='scan.css') }}?v=3">
+<style>
+  html, body { height: 100%; margin: 0; }
+  body.scan-body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: #0f172a;
+  }
+  .scan-login-box {
+    width: 100%;
+    max-width: 400px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 16px;
+    padding: 36px 28px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .55);
+  }
+  .scan-login-icon {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 16px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 24px rgba(99, 102, 241, .4);
+  }
+  .scan-login-icon svg {
+    width: 32px;
+    height: 32px;
+    stroke: #fff;
+    stroke-width: 2;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .scan-login-box h1 {
+    text-align: center;
+    font-size: 20px;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin: 0 0 6px;
+  }
+  .scan-login-box .subtitle {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 13px;
+    margin: 0 0 24px;
+  }
+  .scan-login-field { margin-bottom: 14px; }
+  .scan-login-field label {
+    display: block;
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 6px;
+  }
+  .scan-login-field input {
+    width: 100%;
+    padding: 12px 14px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    color: #f1f5f9;
+    font-size: 16px;
+    font-family: inherit;
+    outline: none;
+    box-sizing: border-box;
+    transition: all .15s;
+  }
+  .scan-login-field input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, .25);
+  }
+  .scan-login-btn {
+    width: 100%;
+    padding: 14px;
+    margin-top: 8px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(99, 102, 241, .35);
+    transition: all .15s;
+  }
+  .scan-login-btn:active { transform: scale(.98); }
+  .scan-login-btn:disabled { opacity: .55; cursor: not-allowed; }
+  #loginMsg {
+    margin-top: 16px;
+    min-height: 20px;
+    text-align: center;
+    font-size: 13px;
+  }
+  #loginMsg.error { color: #fca5a5; }
+  #loginMsg.success { color: #6ee7b7; }
+  .scan-login-foot {
+    margin-top: 20px;
+    text-align: center;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .scan-login-foot a { color: #94a3b8; text-decoration: none; }
+  .scan-login-foot a:hover { color: #e2e8f0; }
+</style>
+</head>
+<body class="scan-body">
+
+<div class="scan-login-box">
+  <div class="scan-login-icon">
+    <svg viewBox="0 0 24 24">
+      <rect x="3" y="3" width="7" height="7"/>
+      <rect x="14" y="3" width="7" height="7"/>
+      <rect x="3" y="14" width="7" height="7"/>
+      <rect x="14" y="14" width="7" height="7"/>
+    </svg>
+  </div>
+  <h1>扫码终端</h1>
+  <p class="subtitle">请使用管理员分配的账号登录</p>
+
+  <form id="loginForm" autocomplete="off">
+    <div class="scan-login-field">
+      <label for="username">用户名</label>
+      <input id="username" type="text" autocomplete="username" required>
+    </div>
+    <div class="scan-login-field">
+      <label for="password">密码</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+    </div>
+    <button id="submitBtn" class="scan-login-btn" type="submit">登录</button>
+  </form>
+
+  <div id="loginMsg"></div>
+
+  <div class="scan-login-foot">
+    账号由管理员审批开通<br>
+    <a href="/">← 返回普通登录</a>
+  </div>
+</div>
+
+<script>
+var CSRF = {{ csrf_token|tojson }};
+var NEXT_URL = {{ next_url|tojson }};
+
+(function () {
+  'use strict';
+  var form = document.getElementById('loginForm');
+  var msgEl = document.getElementById('loginMsg');
+  var btn = document.getElementById('submitBtn');
+
+  function showMsg(text, type) {
+    msgEl.textContent = text || '';
+    msgEl.className = type || '';
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var username = document.getElementById('username').value.trim();
+    var password = document.getElementById('password').value;
+    if (!username || !password) {
+      showMsg('用户名和密码不能为空', 'error');
+      return;
+    }
+    btn.disabled = true;
+    showMsg('正在登录...', '');
+    fetch('/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': CSRF
+      },
+      body: JSON.stringify({
+        username: username,
+        password: password,
+        next: NEXT_URL
+      })
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        return { ok: res.ok, data: data };
+      });
+    }).then(function (r) {
+      if (r.ok && r.data.code === 0) {
+        showMsg('登录成功', 'success');
+        setTimeout(function () {
+          window.location.href = r.data.redirect || NEXT_URL || '/scan';
+        }, 300);
+      } else {
+        showMsg(r.data.msg || '登录失败', 'error');
+      }
+    }).catch(function () {
+      showMsg('请求失败，请检查网络', 'error');
+    }).then(function () {
+      btn.disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>

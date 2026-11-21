@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理后台</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+<style>
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+  .container { max-width: 1200px; margin: 28px auto; padding: 0 20px; width: 100%; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .tab {
+    padding: 9px 22px; border: 1px solid var(--border); background: #fff;
+    border-radius: var(--radius-sm); cursor: pointer; font-size: 14px;
+    color: var(--text-muted); font-family: inherit; transition: all .15s;
+  }
+  .tab:hover { color: var(--primary); border-color: var(--primary); }
+  .tab.active { background: var(--primary); border-color: var(--primary);
+    color: #fff; font-weight: 600; }
+  .tab-panel.hidden { display: none; }
+
+  .panel {
+    background: var(--card-bg); backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
+  }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    flex-wrap: wrap; gap: 10px;
+  }
+  .panel-header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .panel-header .hint { font-size: 12px; color: var(--text-light); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: #f8fafc; font-weight: 600; color: var(--text-muted);
+    font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  tbody tr:hover { background: #f8fafc; }
+  td.actions { text-align: right; }
+  td.actions button { margin-left: 6px; }
+  .empty { text-align: center; color: var(--text-light); padding: 48px 0; font-size: 14px; }
+
+  .audit-filters, .archive-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .audit-filters input, .audit-filters select,
+  .archive-filters input, .archive-filters select {
+    padding: 6px 10px; font-size: 13px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); font-family: inherit; background: #fff;
+  }
+  .audit-filters input, .archive-filters input { width: 130px; }
+  .detail-cell { color: var(--text-muted); font-size: 12px; word-break: break-word; }
+  .pager {
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    padding: 14px; border-top: 1px solid var(--border);
+    font-size: 13px; color: var(--text-muted);
+  }
+  .pager button { padding: 5px 14px; }
+  .gid-cell { font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px; color: var(--primary-dark); word-break: break-all; }
+  .cells-preview { font-size: 12px; color: var(--text-muted);
+    max-width: 320px; word-break: break-word; }
+  .tag.restored { background: #e5e7eb; color: #6b7280; }
+  .tag.active { background: #d1fae5; color: #047857; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="brand-logo">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    </span>
+    管理后台
+  </div>
+  <div class="actions">
+    <a href="/editor" style="text-decoration:none;">
+      <button class="ghost with-icon">
+        <svg class="icon" viewBox="0 0 24 24">
+          <line x1="19" y1="12" x2="5" y2="12"/>
+          <polyline points="12 19 5 12 12 5"/>
+        </svg>
+        返回台账
+      </button>
+    </a>
+    <span class="user">当前用户：{{ username }}</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="tabs">
+    <button class="tab active" data-tab="users">用户管理</button>
+    <button class="tab" data-tab="audit">审计日志</button>
+    <button class="tab" data-tab="archive">回收站（已封存行）</button>
+  </div>
+
+  <div id="tab-users" class="tab-panel">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>所有用户</h2>
+        <span class="hint" id="hint"></span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:70px;">#</th>
+            <th>用户名</th>
+            <th style="width:120px;">状态</th>
+            <th style="width:260px; text-align:right;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="userRows">
+          <tr><td colspan="4" class="empty">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-audit" class="tab-panel hidden">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>审计日志</h2>
+        <div class="audit-filters">
+          <input id="auditUser" type="text" placeholder="按用户名筛选">
+          <select id="auditAction"><option value="">全部操作</option></select>
+          <button id="auditSearch" class="small">查询</button>
+          <button id="auditRefresh" class="small ghost">刷新</button>
+          <button id="auditClear" class="small danger">清空</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:170px;">时间</th>
+            <th style="width:120px;">用户</th>
+            <th style="width:120px;">操作</th>
+            <th style="width:220px;">对象</th>
+            <th>详情</th>
+          </tr>
+        </thead>
+        <tbody id="auditRows">
+          <tr><td colspan="5" class="empty">加载中...</td></tr>
+        </tbody>
+      </table>
+      <div class="pager">
+        <button id="auditPrev" class="small ghost" disabled>上一页</button>
+        <span id="auditPageInfo"></span>
+        <button id="auditNext" class="small ghost" disabled>下一页</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-archive" class="tab-panel hidden">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>回收站 · 已封存行</h2>
+        <div class="archive-filters">
+          <select id="archLedgerFilter"><option value="">全部台账</option></select>
+          <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
+            <input type="checkbox" id="archIncludeRestored"> 显示已恢复
+          </label>
+          <button id="archRefresh" class="small">刷新</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:140px;">删除时间</th>
+            <th style="width:150px;">台账</th>
+            <th style="width:60px;">原行号</th>
+            <th style="width:280px;">二维码标识（row_gid）</th>
+            <th>数据快照</th>
+            <th style="width:100px;">删除者</th>
+            <th style="width:120px; text-align:right;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="archRows">
+          <tr><td colspan="7" class="empty">请点击刷新加载</td></tr>
+        </tbody>
+      </table>
+      <div class="pager">
+        <button id="archPrev" class="small ghost" disabled>上一页</button>
+        <span id="archPageInfo"></span>
+        <button id="archNext" class="small ghost" disabled>下一页</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+var CSRF = {{ csrf_token|tojson }};
+(function () {
+  'use strict';
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  async function api(url, options) {
+    options = options || {};
+    options.headers = Object.assign(
+      { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      options.headers || {}
+    );
+    var res = await fetch(url, options);
+    if (res.status === 401) { window.location.href = '/'; throw new Error('未登录'); }
+    var data = {};
+    try { data = await res.json(); } catch (e) {}
+    if (!res.ok) { alert(data.msg || '请求失败'); throw new Error('fail'); }
+    return data;
+  }
+
+  var tabBtns = document.querySelectorAll('.tab');
+  Array.prototype.forEach.call(tabBtns, function (btn) {
+    btn.addEventListener('click', function () {
+      Array.prototype.forEach.call(tabBtns, function (b) {
+        b.classList.toggle('active', b === btn);
+      });
+      var name = btn.dataset.tab;
+      document.getElementById('tab-users').classList.toggle('hidden', name !== 'users');
+      document.getElementById('tab-audit').classList.toggle('hidden', name !== 'audit');
+      document.getElementById('tab-archive').classList.toggle('hidden', name !== 'archive');
+      if (name === 'audit') loadAudit();
+      if (name === 'archive') loadArchive();
+    });
+  });
+
+  /* ---------- 用户管理 ---------- */
+  var tbody = document.getElementById('userRows');
+  var hintEl = document.getElementById('hint');
+
+  function statusTag(u) {
+    if (u.username === 'root') return '<span class="tag root">root</span>';
+    if (u.status === 'pending') return '<span class="tag pending">待审批</span>';
+    return '<span class="tag approved">已通过</span>';
+  }
+
+  async function loadUsers() {
+    try {
+      var data = await api('/api/admin/users');
+      var users = data.users || [];
+      var pending = data.pending_count || 0;
+      hintEl.textContent = pending > 0 ? ('有 ' + pending + ' 个用户待审批') : '';
+      if (!users.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">暂无用户</td></tr>';
+        return;
+      }
+      var html = '';
+      users.forEach(function (u, i) {
+        html += '<tr><td>' + (i + 1) + '</td><td>' + esc(u.username) + '</td><td>' +
+                statusTag(u) + '</td><td class="actions">';
+        if (u.username !== 'root') {
+          if (u.status === 'pending') {
+            html += '<button class="small success" data-act="approve" data-u="' + esc(u.username) + '">通过</button>';
+            html += '<button class="small danger" data-act="reject" data-u="' + esc(u.username) + '">拒绝</button>';
+          } else {
+            html += '<button class="small danger" data-act="delete" data-u="' + esc(u.username) + '">删除用户</button>';
+          }
+        }
+        html += '</td></tr>';
+      });
+      tbody.innerHTML = html;
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">加载失败</td></tr>';
+    }
+  }
+
+  tbody.addEventListener('click', async function (e) {
+    var btn = e.target.closest('button');
+    if (!btn) return;
+    var act = btn.dataset.act;
+    var username = btn.dataset.u;
+    if (act === 'approve') {
+      if (!confirm('确定通过「' + username + '」的注册申请？')) return;
+      try { await api('/api/admin/users/' + encodeURIComponent(username) + '/approve', { method: 'POST' }); loadUsers(); } catch (err) {}
+    } else if (act === 'reject') {
+      if (!confirm('确定拒绝并删除「' + username + '」的申请？')) return;
+      try { await api('/api/admin/users/' + encodeURIComponent(username), { method: 'DELETE' }); loadUsers(); } catch (err) {}
+    } else if (act === 'delete') {
+      if (!confirm('确定删除用户「' + username + '」？\n（若其名下仍有台账将无法删除）')) return;
+      try { await api('/api/admin/users/' + encodeURIComponent(username), { method: 'DELETE' }); loadUsers(); } catch (err) {}
+    }
+  });
+
+  /* ---------- 审计日志 ---------- */
+  var ACTION_LABELS = {
+    login: '登录', login_failed: '登录失败', logout: '退出登录', register: '注册',
+    approve_user: '审批通过', delete_user: '删除用户',
+    create_ledger: '新建台账', update_ledger: '更新台账', delete_ledger: '删除台账',
+    clear_audit: '清空日志', interact: '单元格交互',
+    file_upload: '上传附件', file_download: '下载附件', file_delete: '删除附件',
+    file_types_update: '配置附件类型',
+    archive_rows: '封存行到回收站', restore_row: '从回收站恢复',
+  };
+
+  var auditRows = document.getElementById('auditRows');
+  var auditUserEl = document.getElementById('auditUser');
+  var auditActionEl = document.getElementById('auditAction');
+  var auditPageInfo = document.getElementById('auditPageInfo');
+  var auditPrev = document.getElementById('auditPrev');
+  var auditNext = document.getElementById('auditNext');
+  var auditState = { limit: 50, offset: 0, total: 0, username: '', action: '' };
+
+  function actionLabel(a) { return ACTION_LABELS[a] || a || ''; }
+
+  function targetText(log) {
+    if (log.target_type === 'ledger') {
+      var s = '台账';
+      if (log.target_id != null) s += ' #' + log.target_id;
+      if (log.target_name) s += ' 「' + esc(log.target_name) + '」';
+      return s;
+    }
+    if (log.target_type === 'user') return '用户 ' + esc(log.target_name || '');
+    if (log.target_type === 'system') return '系统';
+    return log.target_name ? esc(log.target_name) : '—';
+  }
+
+  function renderAudit(logs) {
+    if (!logs.length) {
+      auditRows.innerHTML = '<tr><td colspan="5" class="empty">暂无日志</td></tr>';
+      return;
+    }
+    var html = '';
+    logs.forEach(function (log) {
+      html += '<tr>';
+      html += '<td>' + esc(log.created_at) + '</td>';
+      html += '<td>' + esc(log.username) + '</td>';
+      html += '<td>' + esc(actionLabel(log.action)) + '</td>';
+      html += '<td>' + targetText(log) + '</td>';
+      html += '<td class="detail-cell">' + esc(log.detail || '') + '</td>';
+      html += '</tr>';
+    });
+    auditRows.innerHTML = html;
+  }
+
+  function fillActionOptions(actions) {
+    var cur = auditActionEl.value;
+    var html = '<option value="">全部操作</option>';
+    (actions || []).forEach(function (a) {
+      html += '<option value="' + esc(a) + '">' + esc(actionLabel(a)) + '</option>';
+    });
+    auditActionEl.innerHTML = html;
+    auditActionEl.value = cur;
+  }
+
+  function renderAuditPager() {
+    var total = auditState.total;
+    var page = Math.floor(auditState.offset / auditState.limit) + 1;
+    var pages = Math.max(1, Math.ceil(total / auditState.limit));
+    auditPageInfo.textContent = '第 ' + page + ' / ' + pages + ' 页，共 ' + total + ' 条';
+    auditPrev.disabled = auditState.offset <= 0;
+    auditNext.disabled = auditState.offset + auditState.limit >= total;
+  }
+
+  async function loadAudit() {
+    auditState.username = auditUserEl.value.trim();
+    auditState.action = auditActionEl.value;
+    var qs = new URLSearchParams();
+    qs.set('limit', auditState.limit);
+    qs.set('offset', auditState.offset);
+    if (auditState.username) qs.set('username', auditState.username);
+    if (auditState.action) qs.set('action', auditState.action);
+    try {
+      var data = await api('/api/admin/audit-logs?' + qs.toString());
+      auditState.total = data.total || 0;
+      fillActionOptions(data.actions || []);
+      renderAudit(data.logs || []);
+      renderAuditPager();
+    } catch (e) {
+      auditRows.innerHTML = '<tr><td colspan="5" class="empty">加载失败</td></tr>';
+    }
+  }
+
+  document.getElementById('auditSearch').addEventListener('click', function () {
+    auditState.offset = 0; loadAudit();
+  });
+  document.getElementById('auditRefresh').addEventListener('click', function () { loadAudit(); });
+  document.getElementById('auditClear').addEventListener('click', async function () {
+    if (!confirm('确定清空所有审计日志？该操作不可恢复。')) return;
+    try {
+      await api('/api/admin/audit-logs', { method: 'DELETE' });
+      auditState.offset = 0; loadAudit();
+    } catch (e) {}
+  });
+  auditPrev.addEventListener('click', function () {
+    if (auditState.offset <= 0) return;
+    auditState.offset = Math.max(0, auditState.offset - auditState.limit);
+    loadAudit();
+  });
+  auditNext.addEventListener('click', function () {
+    if (auditState.offset + auditState.limit >= auditState.total) return;
+    auditState.offset += auditState.limit;
+    loadAudit();
+  });
+  auditUserEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { auditState.offset = 0; loadAudit(); }
+  });
+
+  /* ---------- 回收站 ---------- */
+  var archRows = document.getElementById('archRows');
+  var archLedgerFilter = document.getElementById('archLedgerFilter');
+  var archIncludeRestored = document.getElementById('archIncludeRestored');
+  var archPageInfo = document.getElementById('archPageInfo');
+  var archPrev = document.getElementById('archPrev');
+  var archNext = document.getElementById('archNext');
+  var archState = { limit: 100, offset: 0, total: 0 };
+  var ledgerListLoaded = false;
+
+  async function loadLedgerOptions() {
+    if (ledgerListLoaded) return;
+    try {
+      var data = await api('/api/ledgers?light=1');
+      var cur = archLedgerFilter.value;
+      var html = '<option value="">全部台账</option>';
+      (data.ledgers || []).forEach(function (L) {
+        html += '<option value="' + L.id + '">' + esc(L.name) + '  (#' + L.id + ')</option>';
+      });
+      archLedgerFilter.innerHTML = html;
+      archLedgerFilter.value = cur;
+      ledgerListLoaded = true;
+    } catch (e) {}
+  }
+
+  function fmtCells(cells, headers) {
+    if (!Array.isArray(cells) || !cells.length) return '—';
+    var out = [];
+    for (var i = 0; i < Math.min(3, cells.length); i++) {
+      var h = (headers && headers[i]) || ('列' + (i + 1));
+      var v = String(cells[i] || '');
+      if (!v) continue;
+      out.push(h + '=' + v);
+    }
+    if (!out.length) return '—';
+    return out.join('，') + (cells.length > 3 ? ' …' : '');
+  }
+
+  function renderArchive(rows) {
+    if (!rows.length) {
+      archRows.innerHTML = '<tr><td colspan="7" class="empty">暂无归档记录</td></tr>';
+      return;
+    }
+    var html = '';
+    rows.forEach(function (r) {
+      var restored = r.is_restored ? '<span class="tag restored">已恢复</span>' : '<span class="tag active">已封存</span>';
+      var preview = fmtCells(r.cells, r.column_headers);
+      html += '<tr>';
+      html += '<td>' + esc(r.deleted_at) + '<br>' + restored + '</td>';
+      html += '<td>#' + r.original_ledger_id + ' ' + esc(r.original_ledger_name) + '</td>';
+      html += '<td>第 ' + r.row_index + ' 行</td>';
+      html += '<td class="gid-cell">' + esc(r.row_gid) + '</td>';
+      html += '<td class="cells-preview">' + esc(preview) + '</td>';
+      html += '<td>' + esc(r.deleted_by) + '</td>';
+      html += '<td class="actions">';
+      if (!r.is_restored) {
+        html += '<button class="small" data-act="restore" data-id="' + r.id + '">恢复</button>';
+      } else {
+        html += '<button class="small ghost" disabled>已恢复</button>';
+      }
+      html += '</td>';
+      html += '</tr>';
+    });
+    archRows.innerHTML = html;
+  }
+
+  function renderArchPager() {
+    var total = archState.total;
+    var page = Math.floor(archState.offset / archState.limit) + 1;
+    var pages = Math.max(1, Math.ceil(total / archState.limit));
+    archPageInfo.textContent = '第 ' + page + ' / ' + pages + ' 页，共 ' + total + ' 条';
+    archPrev.disabled = archState.offset <= 0;
+    archNext.disabled = archState.offset + archState.limit >= total;
+  }
+
+  async function loadArchive() {
+    await loadLedgerOptions();
+    var qs = new URLSearchParams();
+    qs.set('limit', archState.limit);
+    qs.set('offset', archState.offset);
+    if (archLedgerFilter.value) qs.set('ledger_id', archLedgerFilter.value);
+    if (archIncludeRestored.checked) qs.set('include_restored', '1');
+    try {
+      var data = await api('/api/archive/rows?' + qs.toString());
+      archState.total = data.total || 0;
+      renderArchive(data.rows || []);
+      renderArchPager();
+    } catch (e) {
+      archRows.innerHTML = '<tr><td colspan="7" class="empty">加载失败</td></tr>';
+    }
+  }
+
+  archRows.addEventListener('click', async function (e) {
+    var btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.act === 'restore') {
+      var id = btn.dataset.id;
+      if (!confirm('确定恢复该行到原台账吗？\n恢复后将使用原二维码标识，二维码永远有效。')) return;
+      try {
+        await api('/api/archive/rows/' + id + '/restore', { method: 'POST' });
+        loadArchive();
+        loadLedgerOptions();
+      } catch (err) {}
+    }
+  });
+
+  document.getElementById('archRefresh').addEventListener('click', function () {
+    archState.offset = 0;
+    loadArchive();
+  });
+  archLedgerFilter.addEventListener('change', function () {
+    archState.offset = 0; loadArchive();
+  });
+  archIncludeRestored.addEventListener('change', function () {
+    archState.offset = 0; loadArchive();
+  });
+  archPrev.addEventListener('click', function () {
+    if (archState.offset <= 0) return;
+    archState.offset = Math.max(0, archState.offset - archState.limit);
+    loadArchive();
+  });
+  archNext.addEventListener('click', function () {
+    if (archState.offset + archState.limit >= archState.total) return;
+    archState.offset += archState.limit;
+    loadArchive();
+  });
+
+  loadUsers();
+})();
+</script>
+</body>
+</html>

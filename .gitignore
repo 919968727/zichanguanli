@@ -1,0 +1,26 @@
+# 敏感凭据（绝不提交）
+secret.key
+certs/*.key
+certs/*.crt
+
+# 数据库与运行时数据（含用户数据）
+*.db
+*.db-wal
+*.db-shm
+backups/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# IDE
+.idea/
+
+# 打包产物
+build/
+dist/
+*.spec.bak
+
+# 系统
+.DS_Store
+Thumbs.db
