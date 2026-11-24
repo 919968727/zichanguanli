@@ -8,7 +8,7 @@
 
 单机部署的台账管理 Web 应用：Flask + SQLite（5 个库 / WAL）+ Waitress，前端原生 JS 无构建，PyInstaller 打包为桌面程序。当前处于 v5.x 功能迭代（细粒度权限 + 二维码 + 扫码终端）。
 
-**登录后首屏是「观测台」(`/dashboard`，原态势大屏)**，不是台账编辑器。编辑器 `/editor` 的左侧是功能菜单：第一项"观测台"入口 + 可折叠的"台账列表"分组。
+**登录后首屏是「台账编辑器」(`/editor`)**，不是观测台。观测台 `/dashboard` 是独立图表页，通过编辑器左侧功能菜单第一项"观测台"入口进入。编辑器左侧菜单：第一项"观测台"入口 + 可折叠的"台账列表"分组。
 
 ## 1. 技术栈（锁定，未经确认不得升级或引入新依赖）
 
@@ -53,13 +53,26 @@
 - **禁止物理删除台账业务行**（删行走归档）；**禁止改动已有字段语义**。
 - 确需改表结构：写迁移函数并在对应 `init_xxx_db()` 中调用，保证旧库可升级。
 
-## 4. 权限模型（必须复用，不得另起一套）
+## 4. 权限模型（两套并存，必须复用，不得另起一套）
 
+### 4.1 系统级角色（管账号 / 组织 / 功能开关）
+- 三类（`SYS_ROLES`）：`super_admin`（超级管理员，管全部）/ `admin`（管理员，管本组织及所有下级组织的人）/ `user`（普通用户）。root 恒为 super_admin。
+- 存 `users.role`；组织存 `orgs` 表（树形，`parent_id`，`descendant_org_ids()` 求所有后代）；用户属组织存 `users.org_id`。
+- 管理员作用域：`users_in_org_scope(org_id)` 返回本组织及后代的用户；`_managed_usernames()` / `_can_manage_user()` 做越权拦截（超管返回 None=全部）。
+- 分级鉴权：`_require_root()`（仅超管）/ `_require_admin()`（超管+管理员）；`/admin` 页与 `/api/admin/*` 按此分级。组织 CRUD 与角色/组织设置仅超管可操作。
+- 功能开关：`FEATURE_KEYS`（export/observatory/scan/offline_scan/file_upload）存 `user_features` 表，默认全开；`_feature_allowed()` 在观测台/扫码/离线上传路由拦截，超管管理员恒允许。
+- 页面：`/users` 用户管理页（`templates/users.html` + `static/users.js`），侧栏入口按 sys_role 显示（super_admin/admin 可见，普通用户不可见）。
+- **登录**：`login_check` 返回 dict（status/role/org_id），写入 session 的 `sys_role`/`org_id`。
+- **台账权限代管**：超管/管理员在 `/users` 页用「台账权限」按钮代管用户权限（`/api/admin/users/<u>/ledger-permissions`），管理员限本组织成员；角色只设 manager/member + 10 键逐项勾选。
+- **建台账 owner**：`create_ledger()` 直接 INSERT owner 到 ledger_members（不能调 set_ledger_member，它拒绝 owner），否则新建者本人会 403。
+
+### 4.2 台账级权限（管数据）
 - 10 个权限键（`PERMISSION_KEYS`）：`data.view`、`data.edit`、`data.delete`、`file.upload`、`file.download`、`qr.generate`、`export`、`member.manage`、`member.approve`、`log.view`。
-- 角色：`owner` / `manager` / `member`；另内置 `root`（对所有台账全权限）。
-- `Service.py` 统一用 `_perm` / `_can_access` / `_can_edit` / `_is_owner` / `_is_manager_or_above` / `_grant_check` 等 helper 校验。
-- 新增接口的固定顺序：`session 登录校验` → `get_ledger_by_id` → `对应权限校验` → `业务操作`；失败返回 `{'msg': ...}` + 合理状态码（401 / 403 / 404 / 400）。
-- 每次写操作后调用 `_audit(username, action, target_type, target_id, target_name, detail)` 留审计。
+- 台账角色：`owner` / `manager` / `member`；root/super_admin 绕过所有台账权限。
+- `Service.py` 用 `_perm` / `_can_access` / `_can_edit` / `_is_owner` / `_is_manager_or_above` / `_grant_check` 校验。
+- 两套权限**互不干扰**：系统角色决定"能不能管账号/用功能"，台账权限决定"能不能看改某本台账的数据"。
+- 新增接口的固定顺序：`登录校验` → `get_ledger_by_id` → `对应权限校验` → `业务操作`；失败返回 `{'msg':...}` + 401/403/404/400。
+- 每次写操作后调用 `_audit(...)` 留审计。
 
 ## 5. 核心机制（改相关代码前必须理解）
 

@@ -107,6 +107,24 @@ ROLE_LABELS = {
     'member': '成员',
 }
 
+# ==================== 系统级用户角色 / 组织 ====================
+# 系统角色（与台账级 owner/manager/member 是两套，互不干扰）
+SYS_ROLES = ['super_admin', 'admin', 'user']
+SYS_ROLE_LABELS = {
+    'super_admin': '超级管理员',
+    'admin': '管理员',
+    'user': '普通用户',
+}
+# 系统功能开关：管理员可对本组织成员授予/回收（默认全部允许）
+FEATURE_KEYS = ['export', 'observatory', 'scan', 'offline_scan', 'file_upload']
+FEATURE_LABELS = {
+    'export': '导出数据',
+    'observatory': '访问观测台',
+    'scan': '扫码终端',
+    'offline_scan': '离线扫码',
+    'file_upload': '上传附件',
+}
+
 # 预设权限包
 PRESET_PACKS = {
     'owner': {
@@ -318,30 +336,57 @@ def init_LedgerEditor_db():
                 password_hash TEXT    NOT NULL,
                 status        TEXT    NOT NULL DEFAULT 'pending'
             );
+            CREATE TABLE IF NOT EXISTS orgs (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT    NOT NULL,
+                parent_id  INTEGER DEFAULT NULL,
+                created_at TEXT    NOT NULL,
+                FOREIGN KEY (parent_id) REFERENCES orgs(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_orgs_parent ON orgs(parent_id);
+            CREATE TABLE IF NOT EXISTS user_features (
+                username TEXT    NOT NULL,
+                feature  TEXT    NOT NULL,
+                enabled  INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (username, feature)
+            );
         """)
         cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
         if 'status' not in cols:
             conn.execute(
                 "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'"
             )
+        if 'role' not in cols:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'"
+            )
+        if 'org_id' not in cols:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN org_id INTEGER DEFAULT NULL"
+            )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id)")
+        # 老库已有账号默认普通用户；root 强制超级管理员
+        conn.execute("UPDATE users SET role='user' WHERE role IS NULL OR role=''")
+        conn.execute("UPDATE users SET role='super_admin' WHERE username='root'")
         conn.commit()
     finally:
         conn.close()
 
 
-def create_user(username, password, status='approved'):
+def create_user(username, password, status='approved', role='user', org_id=None):
     conn = _connect(DATABASE)
     try:
         conn.execute(
-            'INSERT INTO users (username, password_hash, status) VALUES (?, ?, ?)',
-            (username, generate_password_hash(password), status)
+            'INSERT INTO users (username, password_hash, status, role, org_id) '
+            'VALUES (?, ?, ?, ?, ?)',
+            (username, generate_password_hash(password), status, role, org_id)
         )
         conn.commit()
     finally:
         conn.close()
 
 
-def register_user(username, password):
+def register_user(username, password, org_id=None):
     if not username or len(username) < 2 or len(username) > 20:
         return False, '用户名长度需在 2-20 之间'
     if username == 'root':
@@ -354,10 +399,14 @@ def register_user(username, password):
             "SELECT 1 FROM users WHERE username = ? LIMIT 1", (username,)
         ).fetchone():
             return False, '用户名已存在'
+        if org_id is not None and not conn.execute(
+            "SELECT 1 FROM orgs WHERE id=? LIMIT 1", (org_id,)
+        ).fetchone():
+            return False, '所属组织不存在'
         conn.execute(
-            "INSERT INTO users (username, password_hash, status) "
-            "VALUES (?, ?, 'pending')",
-            (username, generate_password_hash(password))
+            "INSERT INTO users (username, password_hash, status, role, org_id) "
+            "VALUES (?, ?, 'pending', 'user', ?)",
+            (username, generate_password_hash(password), org_id)
         )
         conn.commit()
         return True, '注册成功，等待管理员审批'
@@ -383,8 +432,8 @@ def seed_root():
                 conn.close()
         print('管理员账户已存在')
         return
-    create_user('root', 'admin_1qaz!QAZ', 'approved')
-    print('管理员账户已创建')
+    create_user('root', 'admin_1qaz!QAZ', 'approved', role='super_admin')
+    print('超级管理员账户已创建')
 
 
 def login_check(username, password):
@@ -392,8 +441,8 @@ def login_check(username, password):
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
-            "SELECT password_hash, status FROM users WHERE username = ? LIMIT 1",
-            (username,)
+            "SELECT password_hash, status, role, org_id FROM users "
+            "WHERE username = ? LIMIT 1", (username,)
         ).fetchone()
         if row is None:
             return 'bad'
@@ -401,7 +450,20 @@ def login_check(username, password):
             return 'bad'
         if row['status'] != 'approved':
             return 'pending'
-        return 'ok'
+        return {'status': 'ok', 'role': row['role'] or 'user', 'org_id': row['org_id']}
+    finally:
+        conn.close()
+
+
+def get_user_role(username):
+    conn = _connect(DATABASE)
+    try:
+        row = conn.execute(
+            "SELECT role, org_id FROM users WHERE username=? LIMIT 1", (username,)
+        ).fetchone()
+        if not row:
+            return 'user', None
+        return (row[0] or 'user'), row[1]
     finally:
         conn.close()
 
@@ -411,10 +473,237 @@ def list_users():
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT username, status FROM users "
-            "ORDER BY (username='root') DESC, username ASC"
+            "SELECT u.username, u.status, u.role, u.org_id, o.name AS org_name "
+            "FROM users u LEFT JOIN orgs o ON u.org_id=o.id "
+            "ORDER BY (u.username='root') DESC, u.username ASC"
         ).fetchall()
-        return [{'username': r['username'], 'status': r['status']} for r in rows]
+        return [{
+            'username': r['username'], 'status': r['status'],
+            'role': r['role'] or 'user', 'org_id': r['org_id'],
+            'org_name': r['org_name'] or ''
+        } for r in rows]
+    finally:
+        conn.close()
+
+
+# ---------- 组织（树形） ----------
+def list_orgs():
+    conn = _connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT id, name, parent_id, created_at FROM orgs ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_org(org_id):
+    conn = _connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT id, name, parent_id, created_at FROM orgs WHERE id=? LIMIT 1",
+            (org_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def create_org(name, parent_id=None):
+    name = str(name or '').strip()
+    if not name or len(name) > 50:
+        return False, '组织名称需在 1-50 字符', None
+    conn = _connect(DATABASE)
+    try:
+        if parent_id is not None and not conn.execute(
+            "SELECT 1 FROM orgs WHERE id=? LIMIT 1", (parent_id,)
+        ).fetchone():
+            return False, '上级组织不存在', None
+        cur = conn.execute(
+            "INSERT INTO orgs (name, parent_id, created_at) VALUES (?, ?, ?)",
+            (name, parent_id, _now_str())
+        )
+        conn.commit()
+        return True, '已创建', cur.lastrowid
+    finally:
+        conn.close()
+
+
+def update_org(org_id, name=None, parent_id='__keep__'):
+    conn = _connect(DATABASE)
+    try:
+        row = conn.execute("SELECT id, parent_id FROM orgs WHERE id=?", (org_id,)).fetchone()
+        if not row:
+            return False, '组织不存在'
+        if name is not None:
+            name = str(name).strip()
+            if not name or len(name) > 50:
+                return False, '组织名称需在 1-50 字符'
+            conn.execute("UPDATE orgs SET name=? WHERE id=?", (name, org_id))
+        if parent_id != '__keep__':
+            # 防止把自己设为上级或形成环
+            if parent_id is not None:
+                if parent_id == org_id:
+                    return False, '上级组织不能是自己'
+                cur = parent_id
+                seen = set()
+                while cur is not None:
+                    if cur == org_id or cur in seen:
+                        return False, '上级组织不能是自己的下级'
+                    seen.add(cur)
+                    r = conn.execute("SELECT parent_id FROM orgs WHERE id=?", (cur,)).fetchone()
+                    cur = r[0] if r else None
+            conn.execute("UPDATE orgs SET parent_id=? WHERE id=?", (parent_id, org_id))
+        conn.commit()
+        return True, '已更新'
+    finally:
+        conn.close()
+
+
+def delete_org(org_id):
+    conn = _connect(DATABASE)
+    try:
+        if conn.execute("SELECT 1 FROM orgs WHERE id=?", (org_id,)).fetchone() is None:
+            return False, '组织不存在'
+        if conn.execute("SELECT 1 FROM orgs WHERE parent_id=? LIMIT 1", (org_id,)).fetchone():
+            return False, '该组织下有子组织，请先移动或删除子组织'
+        if conn.execute("SELECT 1 FROM users WHERE org_id=? LIMIT 1", (org_id,)).fetchone():
+            return False, '该组织下仍有用户，请先移动用户'
+        conn.execute("DELETE FROM orgs WHERE id=?", (org_id,))
+        conn.commit()
+        return True, '已删除'
+    finally:
+        conn.close()
+
+
+def descendant_org_ids(org_id):
+    """返回 org_id 及其所有后代组织的 id 列表（含自身）。"""
+    conn = _connect(DATABASE)
+    try:
+        all_rows = conn.execute("SELECT id, parent_id FROM orgs").fetchall()
+    finally:
+        conn.close()
+    children = {}
+    for oid, pid in all_rows:
+        children.setdefault(pid, []).append(oid)
+    result, stack = [], [org_id]
+    while stack:
+        cur = stack.pop()
+        result.append(cur)
+        stack.extend(children.get(cur, []))
+    return result
+
+
+def users_in_org_scope(org_id):
+    """管理员作用域内的用户名列表（本组织及所有下级）。org_id 为 None 时返回空。"""
+    if org_id is None:
+        return []
+    ids = descendant_org_ids(org_id)
+    conn = _connect(DATABASE)
+    try:
+        placeholders = ','.join('?' for _ in ids)
+        rows = conn.execute(
+            f"SELECT username FROM users WHERE org_id IN ({placeholders})", ids
+        ).fetchall()
+        return [r[0] for r in rows]
+    finally:
+        conn.close()
+
+
+# ---------- 用户系统角色 / 所属组织 ----------
+def set_user_role(username, role):
+    if role not in SYS_ROLES:
+        return False, '系统角色无效'
+    if username == 'root' and role != 'super_admin':
+        return False, '不能降级超级管理员 root'
+    conn = _connect(DATABASE)
+    try:
+        cur = conn.execute("UPDATE users SET role=? WHERE username=?", (role, username))
+        conn.commit()
+        return (True, '已更新') if cur.rowcount else (False, '用户不存在')
+    finally:
+        conn.close()
+
+
+def set_user_org(username, org_id):
+    conn = _connect(DATABASE)
+    try:
+        if org_id is not None and not conn.execute(
+            "SELECT 1 FROM orgs WHERE id=?", (org_id,)
+        ).fetchone():
+            return False, '组织不存在'
+        cur = conn.execute("UPDATE users SET org_id=? WHERE username=?", (org_id, username))
+        conn.commit()
+        return (True, '已更新') if cur.rowcount else (False, '用户不存在')
+    finally:
+        conn.close()
+
+
+# ---------- 系统功能开关 ----------
+def get_user_features(username):
+    """返回功能开关字典：默认全开，逐项被显式关闭时覆盖。"""
+    result = {k: True for k in FEATURE_KEYS}
+    conn = _connect(DATABASE)
+    try:
+        rows = conn.execute(
+            "SELECT feature, enabled FROM user_features WHERE username=?", (username,)
+        ).fetchall()
+        for feature, enabled in rows:
+            if feature in result:
+                result[feature] = bool(enabled)
+    finally:
+        conn.close()
+    return result
+
+
+def set_user_feature(username, feature, enabled):
+    if feature not in FEATURE_KEYS:
+        return False, '功能项无效'
+    conn = _connect(DATABASE)
+    try:
+        if not conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+            return False, '用户不存在'
+        conn.execute(
+            "INSERT INTO user_features (username, feature, enabled) VALUES (?, ?, ?) "
+            "ON CONFLICT(username, feature) DO UPDATE SET enabled=excluded.enabled",
+            (username, feature, 1 if enabled else 0)
+        )
+        conn.commit()
+        return True, '已更新'
+    finally:
+        conn.close()
+
+
+def list_user_ledger_permissions(username):
+    """返回指定用户在所有台账上的成员权限（含未参与的台账 id/name 供管理端选择）。"""
+    conn = _connect(LEDGER)
+    conn.row_factory = sqlite3.Row
+    try:
+        ledgers = conn.execute(
+            "SELECT id, ledger_name FROM ledgers ORDER BY id"
+        ).fetchall()
+        member_rows = conn.execute(
+            "SELECT * FROM ledger_members WHERE username=?", (str(username),)
+        ).fetchall()
+        by_lid = {r['ledger_id']: r for r in member_rows}
+        out = []
+        for lg in ledgers:
+            lid = lg['id']
+            m = by_lid.get(lid)
+            item = {
+                'ledger_id': lid,
+                'ledger_name': lg['ledger_name'],
+                'role': m['role'] if m else None,
+                'permissions': {},
+            }
+            if m:
+                for k in PERMISSION_KEYS:
+                    item['permissions'][k] = int(m[PERM_COL_MAP[k]] or 0)
+            out.append(item)
+        return out
     finally:
         conn.close()
 
@@ -1566,9 +1855,25 @@ def create_ledger(ledger_name, owner, data=None, teammates=None, viewers=None,
         conn.close()
 
     # ★ 自动把 owner 写入 ledger_members
+    # 注意：set_ledger_member() 拒绝直接设置 owner（owner 只能通过转让变更），
+    # 所以这里必须直接 INSERT，不能用 set_ledger_member。
     try:
         p = PRESET_PACKS['owner']['perms']
-        set_ledger_member(lid_new, owner, 'owner', p, granted_by=owner)
+        cols = ['ledger_id', 'username', 'role', 'granted_by', 'granted_at']
+        vals = [int(lid_new), str(owner), 'owner', str(owner or ''), _now_str()]
+        for k in PERMISSION_KEYS:
+            cols.append(PERM_COL_MAP[k])
+            vals.append(1 if p.get(k) else 0)
+        ph = ','.join(['?'] * len(cols))
+        conn = _connect(LEDGER)
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO ledger_members (" + ','.join(cols) + ") "
+                "VALUES (" + ph + ")", vals
+            )
+            conn.commit()
+        finally:
+            conn.close()
     except Exception as e:
         print(f'[create_ledger] 写入 owner 成员记录失败：{e}')
     return lid_new

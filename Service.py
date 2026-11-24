@@ -14,7 +14,7 @@ from flask import (
 
 from path_helper import data_path, resource_path
 from UseSqlite import (
-    login_check, register_user,
+    login_check, register_user, create_user,
     list_users, count_pending_users, approve_user, delete_user,
     list_ledgers_for_user, get_ledger_by_id, get_ledger_stats_for_user,
     create_ledger, update_ledger, delete_ledger,
@@ -35,10 +35,15 @@ from UseSqlite import (
     get_ledger_member, list_ledger_members, count_ledger_managers,
     has_permission, get_user_permissions,
     set_ledger_member, remove_ledger_member, transfer_owner,
-    revoke_all_by_manager,
+    revoke_all_by_manager, list_user_ledger_permissions,
     create_permission_request, list_permission_requests,
     get_permission_request, review_permission_request,
     cancel_permission_request, count_pending_requests_for_user,
+    # 系统级用户角色 / 组织 / 功能开关
+    SYS_ROLES, SYS_ROLE_LABELS, FEATURE_KEYS, FEATURE_LABELS,
+    get_user_role, list_orgs, get_org, create_org, update_org, delete_org,
+    descendant_org_ids, users_in_org_scope,
+    set_user_role, set_user_org, get_user_features, set_user_feature,
 )
 
 ROOT = 'root'
@@ -48,7 +53,16 @@ ROOT = 'root'
 # 通用工具
 # ============================================================
 
-def _safe_next(next_val, default='/dashboard'):
+def _feature_allowed(feature):
+    """系统功能开关：超管/管理员恒允许；普通用户按 user_features 判断（默认允许）。"""
+    role = session.get('sys_role')
+    if role in ('super_admin', 'admin') or session.get('username') == ROOT:
+        return True
+    features = get_user_features(session.get('username') or '')
+    return bool(features.get(feature, True))
+
+
+def _safe_next(next_val, default='/editor'):
     if not next_val:
         return default
     s = str(next_val).strip()
@@ -449,21 +463,44 @@ def create_app(secure_cookie=True):
     def admin_page():
         if 'username' not in session:
             return redirect(url_for('index'))
-        if session['username'] != ROOT:
+        role = session.get('sys_role') or get_user_role(session['username'])[0]
+        if role not in ('super_admin', 'admin'):
             return redirect(url_for('editor'))
-        return render_template('admin.html', username=session['username'])
+        return render_template('admin.html', username=session['username'],
+                               sys_role=role,
+                               sys_role_label=SYS_ROLE_LABELS.get(role, role),
+                               org_id=session.get('org_id'))
 
     @app.route('/editor')
     def editor():
         if 'username' not in session:
             return redirect(url_for('index'))
-        return render_template('editor.html', username=session['username'])
+        role = session.get('sys_role') or get_user_role(session['username'])[0]
+        if role in ('super_admin', 'admin') or session['username'] == ROOT:
+            features = {k: True for k in FEATURE_KEYS}
+        else:
+            features = get_user_features(session['username'])
+        return render_template('editor.html', username=session['username'],
+                               sys_role=role, features=features)
 
     @app.route('/dashboard')
     def dashboard():
         if 'username' not in session:
             return redirect(url_for('index'))
+        if not _feature_allowed('observatory'):
+            return '您没有访问观测台的权限，请联系管理员', 403
         return render_template('dashboard.html', username=session['username'])
+
+    @app.route('/users')
+    def users_page():
+        if 'username' not in session:
+            return redirect(url_for('index'))
+        role = session.get('sys_role') or get_user_role(session['username'])[0]
+        if role not in ('super_admin', 'admin'):
+            return redirect(url_for('editor'))
+        return render_template('users.html', username=session['username'],
+                               sys_role=role,
+                               sys_role_label=SYS_ROLE_LABELS.get(role, role))
 
     # ============================================================
     # 登录/注册/退出
@@ -474,19 +511,22 @@ def create_app(secure_cookie=True):
         data = request.get_json(silent=True) or {}
         username = (data.get('username') or '').strip()
         password = data.get('password') or ''
-        next_url = _safe_next(data.get('next'), '/dashboard')
+        next_url = _safe_next(data.get('next'), '/editor')
         if not username or not password:
             return jsonify({'code': 400, 'msg': 'username 和 password 不能为空'}), 400
         result = login_check(username, password)
-        if result == 'ok':
+        status = result if isinstance(result, str) else result.get('status')
+        if status == 'ok':
             current_csrf = session.get('csrf_token', '')
             session.clear()
             session['csrf_token'] = current_csrf or secrets.token_hex(32)
             session['username'] = username
+            session['sys_role'] = result.get('role', 'user')
+            session['org_id'] = result.get('org_id')
             session.permanent = False
             _audit(username, 'login', 'user', None, username)
             return jsonify({'code': 0, 'msg': '登录成功', 'redirect': next_url})
-        if result == 'pending':
+        if status == 'pending':
             _audit(username, 'login_failed', 'user', None, username, '账号待审批')
             return jsonify({'code': 403, 'msg': '账号待管理员审批'}), 403
         _audit(username, 'login_failed', 'user', None, username, '用户名或密码错误')
@@ -497,7 +537,12 @@ def create_app(secure_cookie=True):
         body = request.get_json(silent=True) or {}
         username = (body.get('username') or '').strip()
         password = body.get('password') or ''
-        ok, msg = register_user(username, password)
+        org_id = body.get('org_id')
+        try:
+            org_id = int(org_id) if org_id not in (None, '', 'null') else None
+        except (TypeError, ValueError):
+            org_id = None
+        ok, msg = register_user(username, password, org_id=org_id)
         if not ok:
             return jsonify({'code': 400, 'msg': msg}), 400
         _audit(username, 'register', 'user', None, username, msg)
@@ -539,7 +584,7 @@ def create_app(secure_cookie=True):
         name = (body.get('name') or '').strip() or '未命名台账'
         lid = create_ledger(name, username, [['列1', '列2']], [])
         _audit(username, 'create_ledger', 'ledger', lid, name)
-        return jsonify({'code': 0, 'ledger': get_ledger_by_id(lid)})
+        return jsonify({'code': 0, 'ledger': _ledger_with_meta(lid, username)})
 
     def _ledger_with_meta(lid, username):
         ledger = get_ledger_by_id(lid)
@@ -1371,30 +1416,123 @@ def create_app(secure_cookie=True):
                         'default_file_types': DEFAULT_FILE_TYPES})
 
     # ============================================================
-    # 管理后台（账号）
+    # 管理后台（账号 / 组织 / 系统角色）
     # ============================================================
 
+    def _current_sys_role():
+        """当前用户的系统角色（session 优先，兜底查库）。"""
+        r = session.get('sys_role')
+        if r in SYS_ROLES:
+            return r
+        role, _ = get_user_role(session.get('username') or '')
+        return role if role in SYS_ROLES else 'user'
+
     def _require_root():
-        return session.get('username') == ROOT
+        return session.get('username') == ROOT or _current_sys_role() == 'super_admin'
+
+    def _require_admin():
+        """超级管理员或管理员。"""
+        return _current_sys_role() in ('super_admin', 'admin')
+
+    def _managed_usernames():
+        """当前管理员可管理的用户名集合；超管返回 None 表示全部。"""
+        if _current_sys_role() == 'super_admin':
+            return None
+        if _current_sys_role() == 'admin':
+            return set(users_in_org_scope(session.get('org_id')))
+        return set()
+
+    def _can_manage_user(target):
+        managed = _managed_usernames()
+        if managed is None:
+            return True
+        if target == session.get('username'):
+            return True
+        return target in managed
+
+    @app.route('/api/admin/context', methods=['GET'])
+    def api_admin_context():
+        """前端按角色决定菜单可见性与功能范围。"""
+        if not _require_admin():
+            return jsonify({'msg': '无权限'}), 403
+        role = _current_sys_role()
+        return jsonify({
+            'role': role,
+            'role_label': SYS_ROLE_LABELS.get(role, role),
+            'org_id': session.get('org_id'),
+            'orgs': list_orgs(),
+            'sys_roles': [{'key': r, 'label': SYS_ROLE_LABELS[r]} for r in SYS_ROLES],
+            'features': [{'key': k, 'label': FEATURE_LABELS[k]} for k in FEATURE_KEYS],
+        })
 
     @app.route('/api/admin/users', methods=['GET'])
     def api_admin_users():
-        if not _require_root():
+        if not _require_admin():
             return jsonify({'msg': '无权限'}), 403
-        return jsonify({
-            'users': list_users(),
-            'pending_count': count_pending_users(),
-        })
+        users = list_users()
+        managed = _managed_usernames()
+        if managed is not None:
+            users = [u for u in users if u['username'] in managed]
+            pending = sum(1 for u in users if u['status'] == 'pending')
+        else:
+            pending = count_pending_users()
+        return jsonify({'users': users, 'pending_count': pending})
+
+    @app.route('/api/admin/users', methods=['POST'])
+    def api_admin_create_user():
+        if not _require_admin():
+            return jsonify({'msg': '无权限'}), 403
+        body = request.get_json(silent=True) or {}
+        username = (body.get('username') or '').strip()
+        password = body.get('password') or ''
+        role = body.get('role') or 'user'
+        org_id = body.get('org_id')
+        try:
+            org_id = int(org_id) if org_id not in (None, '', 'null') else None
+        except (TypeError, ValueError):
+            org_id = None
+        # 校验：用户名/密码
+        if not username or len(username) < 2 or len(username) > 20:
+            return jsonify({'code': 400, 'msg': '用户名长度需在 2-20 之间'}), 400
+        if not password or len(password) < 4:
+            return jsonify({'code': 400, 'msg': '密码至少 4 位'}), 400
+        if username == ROOT:
+            return jsonify({'code': 400, 'msg': '该用户名不可用'}), 400
+        # 角色：管理员只能创建普通用户；超管可创建管理员/普通用户（不能创建超管）
+        if _current_sys_role() == 'admin':
+            if role != 'user':
+                return jsonify({'code': 400, 'msg': '管理员只能创建普通用户'}), 400
+            org_id = session.get('org_id')  # 强制挂到自己组织
+        else:
+            if role not in ('admin', 'user'):
+                return jsonify({'code': 400, 'msg': '只能创建管理员或普通用户'}), 400
+        if org_id is not None and not _org_in_scope(org_id):
+            return jsonify({'code': 400, 'msg': '所属组织不在管辖范围内'}), 400
+        # 复用数据层创建（默认 approved）
+        import sqlite3 as _sq
+        try:
+            create_user(username, password, 'approved', role='user', org_id=org_id)
+        except _sq.IntegrityError:
+            return jsonify({'code': 400, 'msg': '用户名已存在'}), 400
+        if role != 'user':
+            set_user_role(username, role)
+        _audit(session.get('username'), 'create_user', 'user', None, username,
+               role + ('|org=' + str(org_id) if org_id else ''))
+        return jsonify({'code': 0, 'msg': '用户已创建'})
 
     @app.route('/api/admin/pending-count', methods=['GET'])
     def api_admin_pending_count():
-        if not _require_root():
+        if not _require_admin():
             return jsonify({'count': 0})
-        return jsonify({'count': count_pending_users()})
+        managed = _managed_usernames()
+        if managed is None:
+            return jsonify({'count': count_pending_users()})
+        users = [u for u in list_users() if u['username'] in managed]
+        return jsonify({'count': sum(1 for u in users if u['status'] == 'pending')})
 
     @app.route('/api/admin/users/<username>/approve', methods=['POST'])
     def api_admin_approve(username):
-        if not _require_root():
+        if not _require_admin() or not _can_manage_user(username):
             return jsonify({'msg': '无权限'}), 403
         ok, msg = approve_user(username)
         if not ok:
@@ -1404,12 +1542,170 @@ def create_app(secure_cookie=True):
 
     @app.route('/api/admin/users/<username>', methods=['DELETE'])
     def api_admin_delete_user(username):
-        if not _require_root():
+        if not _require_admin() or not _can_manage_user(username):
             return jsonify({'msg': '无权限'}), 403
         ok, msg = delete_user(username)
         if not ok:
             return jsonify({'code': 400, 'msg': msg}), 400
         _audit(session.get('username'), 'delete_user', 'user', None, username, msg)
+        return jsonify({'code': 0, 'msg': msg})
+
+    # ---------- 组织管理（树形） ----------
+    @app.route('/api/admin/orgs', methods=['GET'])
+    def api_admin_orgs():
+        if not _require_admin():
+            return jsonify({'msg': '无权限'}), 403
+        return jsonify({'orgs': list_orgs()})
+
+    def _org_in_scope(oid):
+        """组织是否在当前管理员作用域内（超管恒真）。"""
+        if _current_sys_role() == 'super_admin':
+            return True
+        my_org = session.get('org_id')
+        return my_org is not None and oid in descendant_org_ids(my_org)
+
+    @app.route('/api/admin/orgs', methods=['POST'])
+    def api_admin_org_create():
+        if not _require_admin():
+            return jsonify({'msg': '无权限'}), 403
+        body = request.get_json(silent=True) or {}
+        role = _current_sys_role()
+        parent_id = body.get('parent_id')
+        try:
+            parent_id = int(parent_id) if parent_id not in (None, '', 'null') else None
+        except (TypeError, ValueError):
+            parent_id = None
+        if role == 'admin':
+            # 管理员只能在自己组织（及下级）下建组织；未指定则挂到自己组织下
+            if parent_id is None:
+                parent_id = session.get('org_id')
+            if not _org_in_scope(parent_id):
+                return jsonify({'msg': '只能在自己管辖的组织下创建'}), 403
+        ok, msg, oid = create_org(body.get('name'), parent_id)
+        if not ok:
+            return jsonify({'code': 400, 'msg': msg}), 400
+        _audit(session.get('username'), 'create_org', 'org', oid, body.get('name'))
+        return jsonify({'code': 0, 'msg': msg, 'id': oid})
+
+    @app.route('/api/admin/orgs/<int:oid>', methods=['PUT'])
+    def api_admin_org_update(oid):
+        if not _require_admin() or not _org_in_scope(oid):
+            return jsonify({'msg': '无权限'}), 403
+        body = request.get_json(silent=True) or {}
+        parent_id = body.get('parent_id', '__keep__')
+        if parent_id != '__keep__':
+            try:
+                parent_id = int(parent_id) if parent_id not in (None, '', 'null') else None
+            except (TypeError, ValueError):
+                parent_id = None
+            if _current_sys_role() == 'admin' and parent_id is not None \
+                    and not _org_in_scope(parent_id):
+                return jsonify({'msg': '不能移到管辖范围外的组织下'}), 403
+        ok, msg = update_org(oid, body.get('name'), parent_id)
+        if not ok:
+            return jsonify({'code': 400, 'msg': msg}), 400
+        _audit(session.get('username'), 'update_org', 'org', oid, body.get('name'))
+        return jsonify({'code': 0, 'msg': msg})
+
+    @app.route('/api/admin/orgs/<int:oid>', methods=['DELETE'])
+    def api_admin_org_delete(oid):
+        if not _require_admin() or not _org_in_scope(oid):
+            return jsonify({'msg': '无权限'}), 403
+        ok, msg = delete_org(oid)
+        if not ok:
+            return jsonify({'code': 400, 'msg': msg}), 400
+        _audit(session.get('username'), 'delete_org', 'org', oid, None)
+        return jsonify({'code': 0, 'msg': msg})
+
+    # ---------- 用户系统角色 / 所属组织 ----------
+    @app.route('/api/admin/users/<username>/role', methods=['PUT'])
+    def api_admin_set_role(username):
+        if not _require_root() or not _can_manage_user(username):
+            return jsonify({'msg': '无权限'}), 403
+        role = (request.get_json(silent=True) or {}).get('role')
+        ok, msg = set_user_role(username, role)
+        if not ok:
+            return jsonify({'code': 400, 'msg': msg}), 400
+        _audit(session.get('username'), 'set_sys_role', 'user', None, username, role)
+        return jsonify({'code': 0, 'msg': msg})
+
+    @app.route('/api/admin/users/<username>/org', methods=['PUT'])
+    def api_admin_set_org(username):
+        if not _require_root() or not _can_manage_user(username):
+            return jsonify({'msg': '无权限'}), 403
+        org_id = (request.get_json(silent=True) or {}).get('org_id')
+        try:
+            org_id = int(org_id) if org_id not in (None, '', 'null') else None
+        except (TypeError, ValueError):
+            org_id = None
+        ok, msg = set_user_org(username, org_id)
+        if not ok:
+            return jsonify({'code': 400, 'msg': msg}), 400
+        _audit(session.get('username'), 'set_user_org', 'user', None, username, str(org_id))
+        return jsonify({'code': 0, 'msg': msg})
+
+    # ---------- 系统功能开关 ----------
+    @app.route('/api/admin/users/<username>/features', methods=['GET'])
+    def api_admin_get_features(username):
+        if not _require_admin() or not _can_manage_user(username):
+            return jsonify({'msg': '无权限'}), 403
+        return jsonify({'features': get_user_features(username)})
+
+    @app.route('/api/admin/users/<username>/features/<feature>', methods=['PUT'])
+    def api_admin_set_feature(username, feature):
+        if not _require_admin() or not _can_manage_user(username):
+            return jsonify({'msg': '无权限'}), 403
+        enabled = bool((request.get_json(silent=True) or {}).get('enabled'))
+        ok, msg = set_user_feature(username, feature, enabled)
+        if not ok:
+            return jsonify({'code': 400, 'msg': msg}), 400
+        _audit(session.get('username'), 'set_feature', 'user', None, username,
+               feature + ('=on' if enabled else '=off'))
+        return jsonify({'code': 0, 'msg': msg})
+
+    # ---------- 用户台账权限（超管/管理员用按钮管理） ----------
+    @app.route('/api/admin/users/<username>/ledger-permissions', methods=['GET'])
+    def api_admin_user_ledger_permissions(username):
+        if not _require_admin() or not _can_manage_user(username):
+            return jsonify({'msg': '无权限'}), 403
+        return jsonify({
+            'username': username,
+            'items': list_user_ledger_permissions(username),
+            'permission_keys': PERMISSION_KEYS,
+            'permission_labels': PERM_LABELS,
+            'role_labels': ROLE_LABELS,
+        })
+
+    @app.route('/api/admin/users/<username>/ledger-permissions/<int:lid>', methods=['PUT'])
+    def api_admin_user_ledger_permission_set(username, lid):
+        if not _require_admin() or not _can_manage_user(username):
+            return jsonify({'msg': '无权限'}), 403
+        if not get_ledger_by_id(lid):
+            return jsonify({'msg': '台账不存在'}), 404
+        body = request.get_json(silent=True) or {}
+        role = (body.get('role') or '').strip()
+        if role not in ('manager', 'member'):
+            return jsonify({'msg': '角色只能是 manager 或 member（owner 通过转让变更）'}), 400
+        perms = {}
+        for k in PERMISSION_KEYS:
+            perms[k] = 1 if (body.get('permissions') or {}).get(k) else 0
+        ok, msg = set_ledger_member(lid, username, role, perms,
+                                    granted_by=session.get('username'))
+        if not ok:
+            return jsonify({'code': 400, 'msg': msg}), 400
+        _audit(session.get('username'), 'admin_set_ledger_perm', 'ledger', lid,
+               username, role)
+        return jsonify({'code': 0, 'msg': msg})
+
+    @app.route('/api/admin/users/<username>/ledger-permissions/<int:lid>', methods=['DELETE'])
+    def api_admin_user_ledger_permission_remove(username, lid):
+        if not _require_admin() or not _can_manage_user(username):
+            return jsonify({'msg': '无权限'}), 403
+        ok, msg = remove_ledger_member(lid, username)
+        if not ok:
+            return jsonify({'code': 400, 'msg': msg}), 400
+        _audit(session.get('username'), 'admin_remove_ledger_perm', 'ledger', lid,
+               username)
         return jsonify({'code': 0, 'msg': msg})
 
     @app.route('/api/admin/audit-logs', methods=['GET'])
@@ -1701,6 +1997,8 @@ def create_app(secure_cookie=True):
     def scan_home():
         if 'username' not in session:
             return redirect(url_for('scan_login', next='/scan'))
+        if not _feature_allowed('scan'):
+            return '您没有扫码终端权限，请联系管理员', 403
         username = session['username']
         # 有 qr.generate 权限的台账 → 列出对应扫码应用
         apps = []
@@ -1953,6 +2251,8 @@ def create_app(secure_cookie=True):
     def offline_upload_page():
         if 'username' not in session:
             return redirect(url_for('scan_login', next='/offline-upload'))
+        if not _feature_allowed('offline_scan'):
+            return '您没有离线扫码权限，请联系管理员', 403
         return render_template('scan-offline-upload.html',
                                username=session['username'])
 

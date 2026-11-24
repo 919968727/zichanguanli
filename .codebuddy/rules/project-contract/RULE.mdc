@@ -55,7 +55,7 @@ provider:
 - 单元格交互 `Service.py` 的 `_SAMPLE_INTERACT_RESPONSES` 是写死的假响应（demo 桩）。
 - 台账日志 `api_ledger_logs` 是简化实现（取最新 500 条内存过滤，超量会缺失）。
 - 前端：批量操作条常驻显示（`.batch-bar`），无选中时"开始/取消选择"禁用；侧栏支持收起（`.layout.sidebar-collapsed`，localStorage 持久化）。
-- **登录落地页 = 观测台 `/dashboard`**：由三处决定，改动必须同步——`Service.py` 的 `/` 路由、`_safe_next` 默认值、登录接口 `login` 显式传的 default（L477）、`index.html` 登录成功 fallback。任一处漏改会导致登录后跳错页。
+- **登录落地页 = 台账编辑器 `/editor`**：由四处决定，改动必须同步——`Service.py` 的 `/` 路由、`_safe_next` 默认值、登录接口 `login` 显式传的 default（L477）、`index.html` 登录成功 fallback。任一处漏改会导致登录后跳错页。观测台 `/dashboard` 是独立图表页，从编辑器侧栏入口进入。
 - 侧栏是功能菜单：顶部"观测台"入口（第一个）+ "台账列表"可折叠分组（`#groupLedgers` / `#groupLedgersToggle`，localStorage key `ledgerMenuGroupCollapsed`）。台账列表本身是分组内的一块，不是侧栏全部。
 
 ## 6. 已有能力清单（先复用，勿重复实现）

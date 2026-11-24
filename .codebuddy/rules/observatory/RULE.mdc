@@ -8,7 +8,7 @@ provider:
 # 观测台（原态势大屏）
 
 - 路由 `/dashboard`，模板 `templates/dashboard.html`，样式 `static/dashboard.css`，逻辑 `static/dashboard.js`（独立 IIFE，不复用 editor-chart.js）。
-- 已是登录后的首屏（见项目契约的落地页约定）。
+- 不是登录首屏（登录落地页为 `/editor` 台账编辑器），通过编辑器侧栏第一项入口进入。
 - 标题：观测台 / OBSERVATORY；顶栏入口在 editor 侧栏菜单第一项（`#menuObservatory`）。
 
 ## 图表配置（localStorage，个人级）

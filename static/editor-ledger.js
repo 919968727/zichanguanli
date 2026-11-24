@@ -1051,6 +1051,9 @@ async function refreshPendingBadge() {
  * 导入 / 导出 Excel
  * ============================================================ */
 function exportExcel() {
+  if (typeof FEATURES !== 'undefined' && FEATURES.export === false) {
+    alert('你没有导出数据的权限，请联系管理员'); return;
+  }
   if (!currentLedger) { alert('请先打开或新建一本台账'); return; }
   if (typeof XLSX === 'undefined') { alert('Excel 库未加载'); return; }
   try {

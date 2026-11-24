@@ -158,7 +158,7 @@ var CSRF = {{ csrf_token|tojson }};
       var result = await res.json();
       if (res.ok && result.code === 0) {
         showMessage(messageEl, result.msg || '登录成功', 'success');
-        setTimeout(function () { window.location.href = result.redirect || '/dashboard'; }, 400);
+        setTimeout(function () { window.location.href = result.redirect || '/editor'; }, 400);
       } else {
         showMessage(messageEl, result.msg || '登录失败', 'error');
       }

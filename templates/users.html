@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用户管理</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+<style>
+:root { --um-bg:#f5f7fb; --um-card:#fff; --um-border:#e2e8f0; --um-text:#1e293b; --um-muted:#64748b; --um-primary:#4f46e5; --um-danger:#dc2626; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--um-bg); color:var(--um-text); font-size:14px; }
+.um-topbar { display:flex; align-items:center; justify-content:space-between; padding:12px 24px; background:linear-gradient(135deg,#1e293b,#334155); color:#fff; }
+.um-topbar h1 { font-size:18px; margin:0; }
+.um-topbar .um-meta { font-size:13px; opacity:.85; display:flex; gap:14px; align-items:center; }
+.um-topbar a { color:#c7d2fe; text-decoration:none; }
+.um-wrap { max-width:1180px; margin:20px auto; padding:0 20px; }
+.um-tabs { display:flex; gap:6px; margin-bottom:16px; border-bottom:2px solid var(--um-border); }
+.um-tab { padding:10px 18px; cursor:pointer; border:0; background:transparent; font-size:14px; color:var(--um-muted); border-bottom:2px solid transparent; margin-bottom:-2px; }
+.um-tab.active { color:var(--um-primary); border-bottom-color:var(--um-primary); font-weight:600; }
+.um-panel { display:none; background:var(--um-card); border:1px solid var(--um-border); border-radius:10px; padding:18px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+.um-panel.active { display:block; }
+.um-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+.um-toolbar h2 { font-size:16px; margin:0 auto 0 0; }
+.um-btn { padding:7px 14px; border:1px solid var(--um-border); border-radius:6px; background:#fff; color:var(--um-text); cursor:pointer; font-size:13px; }
+.um-btn:hover { border-color:var(--um-primary); color:var(--um-primary); }
+.um-btn.primary { background:var(--um-primary); color:#fff; border-color:var(--um-primary); }
+.um-btn.danger { color:var(--um-danger); }
+.um-btn:disabled { opacity:.5; cursor:not-allowed; }
+.um-input, .um-select { padding:7px 9px; border:1px solid var(--um-border); border-radius:6px; font-size:13px; background:#fff; color:var(--um-text); }
+table.um-table { width:100%; border-collapse:collapse; }
+.um-table th, .um-table td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--um-border); font-size:13px; }
+.um-table th { color:var(--um-muted); font-weight:600; background:#f8fafc; }
+.um-table tr:hover td { background:#f8fafc; }
+.tag { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; }
+.tag-role { background:#eef2ff; color:#4338ca; }
+.tag-role.admin { background:#fef3c7; color:#b45309; }
+.tag-role.super_admin { background:#fee2e2; color:#b91c1c; }
+.tag-status-approved { background:#dcfce7; color:#15803d; }
+.tag-status-pending { background:#fef9c3; color:#a16207; }
+.um-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.um-actions button { font-size:12px; padding:4px 9px; }
+.um-empty { padding:40px; text-align:center; color:var(--um-muted); }
+.um-hint { font-size:12px; color:var(--um-muted); margin:0 0 12px; line-height:1.7; }
+.org-tree { list-style:none; margin:0; padding:0; }
+.org-node { margin:4px 0; }
+.org-row { display:flex; align-items:center; gap:8px; padding:9px 12px; border:1px solid var(--um-border); border-radius:6px; background:#fff; }
+.org-row .org-name { font-weight:600; flex:1; }
+.org-row .org-id { color:var(--um-muted); font-size:12px; }
+.org-children { margin-left:26px; border-left:1px dashed var(--um-border); padding-left:12px; }
+.feature-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
+.feature-card { border:1px solid var(--um-border); border-radius:8px; padding:14px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.feature-card label { font-weight:600; }
+.um-switch { width:42px; height:23px; border-radius:999px; background:#cbd5e1; position:relative; cursor:pointer; transition:background .15s; border:0; flex-shrink:0; }
+.um-switch.on { background:var(--um-primary); }
+.um-switch::after { content:""; position:absolute; top:3px; left:3px; width:17px; height:17px; border-radius:50%; background:#fff; transition:left .15s; }
+.um-switch.on::after { left:22px; }
+.hidden { display:none !important; }
+</style>
+<script>window.CSRF_TOKEN = "{{ csrf_token }}";</script>
+<script>
+  var CSRF = {{ csrf_token|tojson }};
+  var SYS_ROLE = {{ sys_role|tojson }};
+  var CURRENT_USER = {{ username|tojson }};
+  var IS_SUPER = SYS_ROLE === 'super_admin';
+</script>
+</head>
+<body>
+
+<header class="um-topbar">
+  <h1>用户管理</h1>
+  <div class="um-meta">
+    <span id="umRoleLabel">系统角色：{{ sys_role_label }}</span>
+    <a href="/editor">返回台账</a>
+  </div>
+</header>
+
+<div class="um-wrap">
+  <div class="um-tabs">
+    <button class="um-tab active" data-tab="users">用户列表</button>
+    <button class="um-tab" data-tab="orgs">组织架构</button>
+    <button class="um-tab" data-tab="features" id="tabFeatures">功能权限</button>
+  </div>
+
+  <!-- 用户列表 -->
+  <section class="um-panel active" id="umPanelUsers">
+    <div class="um-toolbar">
+      <h2>用户列表</h2>
+      <span class="um-hint" style="margin:0;">待审批：<b id="umPendingCount">0</b></span>
+      <button class="um-btn primary" id="umAddUser">+ 新建用户</button>
+      <button class="um-btn" id="umRefreshUsers">刷新</button>
+    </div>
+    <p class="um-hint">超级管理员可管理全部用户与角色；管理员只能管理本组织及下级组织的用户，并审批其注册与权限申请。</p>
+    <table class="um-table">
+      <thead><tr><th>用户名</th><th>系统角色</th><th>所属组织</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody id="umUserRows"></tbody>
+    </table>
+  </section>
+
+  <!-- 组织架构 -->
+  <section class="um-panel" id="umPanelOrgs">
+    <div class="um-toolbar">
+      <h2>组织架构</h2>
+      <button class="um-btn primary" id="umAddOrg">+ 新建组织</button>
+      <button class="um-btn" id="umRefreshOrgs">刷新</button>
+    </div>
+    <p class="um-hint">组织为树形结构，管理员自动拥有本组织及所有下级组织成员的管理权。</p>
+    <ul class="org-tree" id="umOrgTree"></ul>
+  </section>
+
+  <!-- 功能权限 -->
+  <section class="um-panel" id="umPanelFeatures">
+    <div class="um-toolbar">
+      <h2>功能权限</h2>
+      <select class="um-select" id="umFeatureUser"></select>
+      <button class="um-btn" id="umRefreshFeatures">刷新</button>
+    </div>
+    <p class="um-hint">选择用户后，可单独授予或关闭其系统功能。默认全部允许；关闭后该用户访问对应功能时会被拦截。</p>
+    <div class="feature-grid" id="umFeatureGrid"></div>
+  </section>
+</div>
+
+<!-- 新建组织弹窗 -->
+<div id="umOrgModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50;">
+  <div style="background:#fff;border-radius:10px;padding:22px;width:420px;max-width:90vw;">
+    <h3 style="margin:0 0 16px;">新建组织</h3>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <label>组织名称<input class="um-input" id="umOrgName" maxlength="50" placeholder="例如：华东分公司"></label>
+      <label>上级组织<select class="um-select" id="umOrgParent"></select></label>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+      <button class="um-btn" id="umOrgCancel">取消</button>
+      <button class="um-btn primary" id="umOrgSave">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新建用户弹窗 -->
+<div id="umUserModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50;">
+  <div style="background:#fff;border-radius:10px;padding:22px;width:440px;max-width:90vw;">
+    <h3 style="margin:0 0 16px;">新建用户</h3>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <label>用户名<input class="um-input" id="umNewUsername" maxlength="20" placeholder="2-20 字符"></label>
+      <label>密码<input class="um-input" id="umNewPassword" type="password" placeholder="至少 4 位"></label>
+      <label>系统角色
+        <select class="um-select" id="umNewRole">
+          <option value="user">普通用户</option>
+          <option value="admin" id="umNewRoleAdmin">管理员</option>
+        </select>
+      </label>
+      <label>所属组织<select class="um-select" id="umNewOrg"></select></label>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+      <button class="um-btn" id="umUserCancel">取消</button>
+      <button class="um-btn primary" id="umUserSave">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- 台账权限弹窗 -->
+<div id="umLpModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50;">
+  <div style="background:#fff;border-radius:10px;padding:22px;width:720px;max-width:92vw;max-height:86vh;display:flex;flex-direction:column;">
+    <h3 id="umLpTitle" style="margin:0 0 12px;">台账权限</h3>
+    <p class="um-hint">选择角色（manager/member）并勾选具体权限后点「保存」。owner 权限不可在此修改，需在台账内转让。</p>
+    <div id="umLpBody" style="overflow-y:auto;flex:1;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+      <button class="um-btn" id="umLpClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='users.js') }}"></script>
+</body>
+</html>

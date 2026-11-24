@@ -1,0 +1,45 @@
+---
+description: 系统级三级用户角色（超级管理员/管理员/普通用户）、树形组织、功能开关与用户管理页的约定。当涉及用户管理、组织、角色、账号审批、功能权限时加载。
+alwaysApply: false
+enabled: true
+provider:
+---
+
+# 用户管理系统
+
+两套权限并存、互不干扰：系统角色管账号/组织/功能开关，台账级 owner/manager/member + 10 键管数据。
+
+## 数据层（UseSqlite.py）
+- `users` 表：`username / password_hash / status / role / org_id`。role ∈ `super_admin/admin/user`（`SYS_ROLES`），root 恒 super_admin。
+- `orgs` 表：树形 `id/name/parent_id/created_at`；`descendant_org_ids(org_id)` 求自身+所有后代；`users_in_org_scope()` 求作用域用户名。
+- `user_features` 表：`(username, feature)` → enabled；`FEATURE_KEYS` = export/observatory/scan/offline_scan/file_upload，默认全开。
+- 新增组织/角色/功能函数：`list_orgs/get_org/create_org/update_org/delete_org`、`set_user_role/set_user_org`、`get_user_features/set_user_feature`。
+- `login_check` 返回 **dict**（status/role/org_id），不是字符串——改登录逻辑务必适配。
+- 改表结构走 `init_LedgerEditor_db()` 的幂等 ALTER 迁移。
+
+## 后端（Service.py）
+- session 写入 `sys_role`/`org_id`；`_current_sys_role()` 优先 session 兜底查库。
+- 鉴权：`_require_root()`（仅超管：角色/组织设置、审计/回收站）、`_require_admin()`（超管+管理员：用户列表/创建/审批、组织 CRUD、功能开关）。
+- 作用域：`_managed_usernames()`（超管 None=全部；管理员=本组织及后代）、`_can_manage_user()` 与 `_org_in_scope()` 做越权拦截。
+- 组织 CRUD 已放开给管理员：管理员建组织自动挂到自己 org 下（`parent_id` 未指定时），只能改/删自己子树内的组织；超管可建任意层级。
+- 创建用户：`POST /api/admin/users`，管理员只能在自己组织下建**普通用户**（直接 approved），超管可建管理员/普通用户（不能建超管）。
+- 用户台账权限管理（`/users` 页每行的「台账权限」按钮）：
+  - `GET/PUT/DELETE /api/admin/users/<u>/ledger-permissions[/<lid>]`，查询/设置/移除某用户在台账上的成员权限。
+  - 角色只能设 manager/member（owner 不可在此改，需台账内转让）；权限为 10 键逐项勾选，走 `set_ledger_member`。
+  - 作用域：`_can_manage_user(u)` 限制管理员只能管本组织成员；超管管全部。
+  - 数据层 `list_user_ledger_permissions(username)` 列出全部台账及该用户的角色/权限。
+- **重要 bug 修复**：`create_ledger()` 里 owner 成员记录必须**直接 INSERT**到 ledger_members，不能调 `set_ledger_member()`（后者拒绝 role=owner，会静默失败导致新建者自己 403 无法访问台账）。
+- 功能开关：`_feature_allowed(feature)` 在 `/dashboard`、`/scan`、`/offline-upload` 路由拦截；超管/管理员恒允许。导出 export 是纯前端功能，靠模板 `features.export` 隐藏按钮 + `exportExcel()` 内 `FEATURES.export` 拦截。
+- `/api/admin/*` 新增：context、orgs（GET/POST/PUT/DELETE）、users/<u>/role、users/<u>/org、users/<u>/features、features/<feature>。
+- `/users` 页面仅 super_admin/admin 可进；`/admin` 原后台也已放开给 admin（但审计/回收站 API 仍仅超管）。
+
+## 前端
+- `templates/users.html` + `static/users.js`：三个 tab（用户列表/组织架构/功能权限），全部走 `/api/admin/*`，CSRF 头同 editor-core 的 api()。
+- `templates/editor.html` 侧栏：观测台入口按 `features.observatory` 显示；用户管理入口按 `sys_role in [super_admin,admin]` 显示；head 暴露 `SYS_ROLE`/`CURRENT_USER`。
+- 顶栏"态势大屏"按钮同样按 `features.observatory` 显示。
+
+## 修改注意
+- 系统角色与台账角色是两套，别混用：`SYS_ROLES`/`SYS_ROLE_LABELS` vs `ROLE_LABELS`(owner/manager/member)。
+- 管理员改不了角色/组织（仅超管可），但要能审批本组织注册与功能开关——改权限时确认 `_require_root` vs `_require_admin` 用对。
+- 删除组织前须先移走用户与子组织（数据层已校验）。
+- 生效需重启服务（Flask debug=False 不热重载），本机 8765。

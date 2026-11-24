@@ -11,6 +11,8 @@
   var CURRENT_USER = {{ username|tojson }};
   var CSRF = {{ csrf_token|tojson }};
   var IS_ROOT = CURRENT_USER === 'root';
+  var SYS_ROLE = {{ sys_role|default('user')|tojson }};
+  var FEATURES = {{ features|default({})|tojson }};
 </script>
 <script src="{{ url_for('static', filename='xlsx.full.min.js') }}"></script>
 <script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
@@ -58,6 +60,7 @@
       </svg>
       刷新台账
     </button>
+    {% if features.get('observatory', True) %}
     <a href="/dashboard" style="text-decoration:none;">
       <button class="ghost with-icon">
         <svg class="icon" viewBox="0 0 24 24">
@@ -67,6 +70,7 @@
         态势大屏
       </button>
     </a>
+    {% endif %}
     {% if username == 'root' %}
       <a href="/admin" style="text-decoration:none;">
         <button class="ghost with-icon">
@@ -99,6 +103,7 @@
       <button id="btnSidebarCollapse" class="sidebar-collapse" title="收起侧栏" aria-label="收起侧栏">‹</button>
     </div>
     <nav class="side-menu">
+      {% if features.get('observatory', True) %}
       <a href="/dashboard" class="side-menu-link" id="menuObservatory" title="进入观测台">
         <svg class="icon" viewBox="0 0 24 24">
           <path d="M3 3v18h18"/>
@@ -107,6 +112,19 @@
         <span>观测台</span>
         <span class="side-menu-arrow">↗</span>
       </a>
+      {% endif %}
+      {% if sys_role in ['super_admin', 'admin'] %}
+      <a href="/users" class="side-menu-link" id="menuUserManagement" title="用户管理">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        <span>用户管理</span>
+        <span class="side-menu-arrow">↗</span>
+      </a>
+      {% endif %}
       <div class="side-menu-group" id="groupLedgers">
         <button class="side-menu-group-head" id="groupLedgersToggle" aria-expanded="true">
           <svg class="icon" viewBox="0 0 24 24">
@@ -201,6 +219,7 @@
           </svg>
           导入
         </button>
+        {% if features.get('export', True) %}
         <button id="btnExport" class="small with-icon">
           <svg class="icon" viewBox="0 0 24 24">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -209,6 +228,7 @@
           </svg>
           导出
         </button>
+        {% endif %}
 
         <span class="toolbar-divider hidden" id="dividerTeam"></span>
         <button id="btnTeam" class="small hidden with-icon" title="成员与权限">
