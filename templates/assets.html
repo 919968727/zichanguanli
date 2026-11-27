@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>资产管理 · Demo</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
+<style>
+:root{
+  --a-bg:#f4f6fb;--a-card:#fff;--a-border:#e3e8f0;--a-text:#1e293b;--a-muted:#64748b;
+  --a-primary:#4f46e5;--a-primary-soft:#eef2ff;--a-green:#059669;--a-amber:#d97706;--a-red:#dc2626;--a-blue:#0284c7;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--a-bg);color:var(--a-text);font-size:14px}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40;display:none}
+.overlay.show{display:block}
+.topbar{height:56px;background:linear-gradient(135deg,#1e293b,#334155);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:30}
+.topbar h1{font-size:18px;margin:0;display:flex;align-items:center;gap:10px}
+.topbar h1 .demo-badge{font-size:11px;font-weight:500;background:#f59e0b;color:#1c1917;padding:2px 8px;border-radius:999px}
+.topbar .right{display:flex;align-items:center;gap:14px;font-size:13px;opacity:.9}
+.topbar a{color:#c7d2fe;text-decoration:none}
+.wrap{max-width:1400px;margin:18px auto;padding:0 20px}
+.panel{background:var(--a-card);border:1px solid var(--a-border);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.04);margin-bottom:16px}
+.panel-hd{padding:14px 18px;border-bottom:1px solid var(--a-border);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.panel-hd h2{font-size:15px;margin:0 auto 0 0}
+.panel-bd{padding:16px 18px}
+.ctrl-row{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+.ctrl{display:flex;flex-direction:column;gap:6px}
+.ctrl label{font-size:12px;color:var(--a-muted)}
+select,input[type=text],input[type=number]{padding:7px 10px;border:1px solid var(--a-border);border-radius:6px;background:#fff;color:var(--a-text);font-size:13px;font-family:inherit;min-width:130px}
+.btn{padding:7px 14px;border:1px solid var(--a-border);border-radius:6px;background:#fff;color:var(--a-text);cursor:pointer;font-size:13px;font-family:inherit}
+.btn:hover{border-color:var(--a-primary);color:var(--a-primary)}
+.btn.primary{background:var(--a-primary);color:#fff;border-color:var(--a-primary)}
+.btn.sm{padding:4px 9px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;white-space:nowrap}
+.tag-green{background:#dcfce7;color:#15803d}.tag-amber{background:#fef3c7;color:#b45309}.tag-red{background:#fee2e2;color:#b91c1c}.tag-blue{background:#e0f2fe;color:#0369a1}.tag-gray{background:#f1f5f9;color:#475569}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--a-border);font-size:13px}
+th{background:#f8fafc;color:var(--a-muted);font-weight:600;position:sticky;top:0}
+tr:hover td{background:#fafbff}
+.rowno{display:inline-flex;align-items:center;gap:6px}
+.rowno button{width:22px;height:22px;line-height:1;padding:0;border:1px solid var(--a-border);border-radius:5px;background:#fff;color:var(--a-primary);cursor:pointer;font-size:12px}
+.rowno button:hover{background:var(--a-primary-soft)}
+.col-cfg{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--a-border)}
+.col-cfg label{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--a-text);cursor:pointer}
+.hint{font-size:12px;color:var(--a-muted);line-height:1.7}
+.empty{padding:36px;text-align:center;color:var(--a-muted)}
+/* 抽屉 */
+.drawer{position:fixed;top:0;right:0;width:min(920px,94vw);height:100vh;background:#fff;box-shadow:-6px 0 24px rgba(0,0,0,.16);z-index:50;transform:translateX(100%);transition:transform .25s;display:flex;flex-direction:column}
+.drawer.open{transform:translateX(0)}
+.drawer-hd{padding:16px 20px;border-bottom:1px solid var(--a-border);display:flex;align-items:center;gap:12px}
+.drawer-hd h3{margin:0;font-size:16px;flex:1}
+.drawer-hd .asset-name{font-size:12px;color:var(--a-muted)}
+.tabs{display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--a-border);flex-wrap:wrap}
+.tab{padding:9px 13px;border:0;background:transparent;cursor:pointer;font-size:13px;color:var(--a-muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.active{color:var(--a-primary);border-bottom-color:var(--a-primary);font-weight:600}
+.drawer-bd{padding:18px 20px;overflow-y:auto;flex:1}
+.mod{display:none}.mod.active{display:block}
+.mod h4{font-size:14px;margin:0 0 10px;color:var(--a-text)}
+.mod-desc{font-size:12px;color:var(--a-muted);margin:0 0 14px;line-height:1.7}
+.subgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.subcard{border:1px solid var(--a-border);border-radius:8px;padding:14px;background:#fcfdff}
+.subcard .t{font-weight:600;font-size:13px;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.subcard .t .ic{width:26px;height:26px;border-radius:6px;background:var(--a-primary-soft);color:var(--a-primary);display:inline-flex;align-items:center;justify-content:center;font-size:13px}
+.subcard p{margin:0 0 10px;font-size:12px;color:var(--a-muted);line-height:1.6;min-height:38px}
+.form-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.form-row input,.form-row select{flex:1;min-width:110px}
+.timeline{border-left:2px solid var(--a-border);margin:8px 0 0 6px;padding-left:16px}
+.timeline .ti{position:relative;padding:6px 0;font-size:12px;color:var(--a-muted)}
+.timeline .ti::before{content:"";position:absolute;left:-22px;top:11px;width:9px;height:9px;border-radius:50%;background:var(--a-primary)}
+.timeline .ti b{color:var(--a-text)}
+.stat-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.stat{flex:1;min-width:120px;border:1px solid var(--a-border);border-radius:8px;padding:12px}
+.stat .n{font-size:20px;font-weight:700}.stat .l{font-size:12px;color:var(--a-muted);margin-top:2px}
+/* 我的资产台账卡片 */
+.myledger-panel{border-color:#c7d2fe}
+.ml-meta{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.ml-name{font-size:17px;font-weight:700;color:var(--a-primary)}
+.ml-stats{display:flex;gap:18px;font-size:12px;color:var(--a-muted)}
+.ml-stats b{color:var(--a-text);font-size:14px}
+.ml-fields{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.ml-field{padding:5px 12px;border:1px solid #c7d2fe;background:var(--a-primary-soft);color:#4338ca;border-radius:6px;font-size:12px;font-weight:600}
+.ml-desc{margin-top:10px;font-size:12px;color:var(--a-muted);line-height:1.6}
+/* 入库 / 位置配置弹窗 */
+.in-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:45;display:none;align-items:center;justify-content:center}
+.in-modal.show{display:flex}
+.in-box{background:#fff;border-radius:10px;width:min(680px,94vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+.in-box.wide{width:min(760px,94vw)}
+.in-hd{padding:16px 20px;border-bottom:1px solid var(--a-border);display:flex;align-items:center;gap:10px}
+.in-hd h3{margin:0;font-size:16px;flex:1}
+.in-bd{padding:18px 20px;overflow-y:auto}
+.in-ft{padding:12px 20px;border-top:1px solid var(--a-border);display:flex;justify-content:flex-end;gap:8px}
+.fgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px 16px}
+.fgrid .full{grid-column:1/-1}
+.fld{display:flex;flex-direction:column;gap:6px}
+.fld label{font-size:12px;font-weight:600;color:var(--a-text)}
+.fld label .req{color:var(--a-red)}
+.fld input,.fld select,.fld textarea{padding:8px 10px;border:1px solid var(--a-border);border-radius:6px;font-size:13px;font-family:inherit;color:var(--a-text);background:#fff;width:100%}
+.fld input[readonly]{background:#f1f5f9;color:var(--a-muted)}
+.code-row{display:flex;gap:8px}
+.code-row input{flex:1}
+.file-list{margin-top:8px;display:flex;flex-direction:column;gap:5px}
+.attach-item{display:flex;align-items:center;gap:8px;font-size:12px;background:#f8fafc;border:1px solid var(--a-border);border-radius:6px;padding:7px 9px}
+.attach-item .an{flex:1;cursor:pointer;color:var(--a-primary);font-weight:600}
+.attach-item .an:hover{text-decoration:underline}
+.attach-item .aops{display:inline-flex;gap:4px}
+.attach-item .btn{padding:2px 7px;font-size:11px}
+/* 全生命周期时间线 */
+.life-timeline{border-left:2px solid var(--a-border);margin:6px 0 0 6px;padding-left:18px}
+.life-ev{position:relative;padding:0 0 14px 0}
+.life-ev::before{content:"";position:absolute;left:-25px;top:4px;width:11px;height:11px;border-radius:50%;background:var(--a-primary);border:2px solid #fff;box-shadow:0 0 0 2px var(--a-primary-soft)}
+.life-ev.ev-out::before{background:#dc2626;box-shadow:0 0 0 2px #fee2e2}
+.life-ev.ev-receive::before{background:#059669;box-shadow:0 0 0 2px #dcfce7}
+.life-ev.ev-purchase::before{background:#0284c7;box-shadow:0 0 0 2px #e0f2fe}
+.life-ev .le-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+.life-ev .le-hd b{color:var(--a-text)}
+.life-ev .le-time{font-size:12px;color:var(--a-muted);font-variant-numeric:tabular-nums}
+.life-ev .le-meta{font-size:12px;color:var(--a-text);margin-top:4px;line-height:1.7}
+.life-ev .le-meta span{display:inline-block;margin-right:14px}
+.life-ev .le-note{font-size:12px;color:var(--a-muted);margin-top:3px}
+.life-ev .le-changes{margin-top:6px;padding:7px 9px;background:#f8fafc;border:1px solid var(--a-border);border-radius:5px;display:flex;flex-direction:column;gap:3px}
+.life-ev .le-change{font-size:12px;color:var(--a-text);line-height:1.5}
+.life-ev .le-old{color:#b91c1c;text-decoration:line-through}
+.life-ev .le-new{color:#15803d;font-weight:600}
+.life-empty{font-size:12px;color:var(--a-muted);padding:10px 0}
+.file-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--a-muted);background:#f8fafc;border:1px solid var(--a-border);border-radius:6px;padding:6px 9px}
+.file-item span{flex:1}
+.loc-cfg-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.loc-cfg-row input[type=text]{flex:1}
+.loc-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.loc-chip{padding:5px 10px;border:1px solid var(--a-border);border-radius:999px;font-size:12px;background:#f8fafc}
+.fldcfg-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:8px;border:1px solid var(--a-border);border-radius:6px}
+.fldcfg-row input[type=text]{flex:1}
+.fldcfg-row select{width:110px}
+/* 在途单据 */
+.badge{display:inline-block;min-width:18px;padding:1px 6px;border-radius:999px;background:var(--a-red);color:#fff;font-size:11px;font-weight:700;text-align:center}
+.badge.hidden{display:none}
+.ship-hd{font-size:12px;font-weight:600;color:var(--a-text)}
+.ship-list{display:flex;flex-direction:column;gap:8px;margin-top:8px;max-height:180px;overflow-y:auto}
+.ship-card{border:1px solid var(--a-border);border-radius:8px;padding:10px 12px;background:#fcfdff;cursor:pointer;transition:all .15s}
+.ship-card:hover{border-color:var(--a-primary);background:var(--a-primary-soft)}
+.ship-card.sel{border-color:var(--a-primary);background:var(--a-primary-soft);box-shadow:inset 3px 0 0 var(--a-primary)}
+.ship-card.done{opacity:.65;cursor:default;background:#f8fafc}
+.ship-card.done:hover{border-color:var(--a-border);background:#f8fafc}
+.ship-card .sc-t{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ship-card .sc-m{font-size:12px;color:var(--a-muted);margin-top:4px;line-height:1.6}
+.ship-empty{padding:18px;text-align:center;font-size:12px;color:var(--a-muted);border:1px dashed var(--a-border);border-radius:8px}
+.fld input[readonly]{background:#f8fafc;color:#475569;border-style:dashed}
+/* 台账自定义字段配置 */
+.cf-add{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px;border:1px solid var(--a-border);border-radius:6px;background:#f8fafc}
+.cf-add input[type=text]{flex:1;min-width:130px}
+.cf-add select{flex:0 0 auto}
+.cf-required{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--a-text);white-space:nowrap}
+.cf-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:8px 10px;border:1px solid var(--a-border);border-radius:6px}
+.cf-row input[type=text]{flex:1;min-width:110px}
+.cf-row select{flex:0 0 auto}
+.cf-row .cf-required{margin-left:4px}
+/* 资产列表：勾选与行编辑 */
+.asset-batch{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 18px;background:var(--a-primary-soft);border-bottom:1px solid #c7d2fe}
+.asset-batch.hidden{display:none}
+.ab-count{font-size:13px;font-weight:600;color:#4338ca}
+.ab-count b{font-size:15px}
+#assetTable tbody tr.clickable{cursor:pointer}
+#assetTable tbody tr.clickable:hover td{background:#eef2ff}
+#assetTable tbody tr.sel-row td{background:#f5f3ff}
+.row-check,.head-check{width:15px;height:15px;cursor:pointer;accent-color:var(--a-primary);vertical-align:middle}
+.row-check-wrap{display:inline-flex;align-items:center;gap:6px}
+.edit-hint{font-size:12px;color:var(--a-muted);margin:0 0 12px;line-height:1.6}
+/* 二维码标签弹窗（复用原批量打印样式） */
+.bp-fields{display:flex;flex-wrap:wrap;gap:8px 14px;max-height:120px;overflow-y:auto;padding:8px 10px;border:1px solid var(--a-border);border-radius:6px;background:#f8fafc}
+.bp-field-check{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--a-text);white-space:nowrap;cursor:pointer}
+.bp-two{display:flex;align-items:center;gap:6px}
+.bp-two .bp-input{flex:1;min-width:0}
+.bp-x{color:var(--a-muted);font-size:13px}
+.bp-input{padding:7px 10px;border:1px solid var(--a-border);border-radius:6px;background:#fff;color:var(--a-text);font-size:13px;font-family:inherit;width:100%;box-sizing:border-box}
+.bp-preview{min-height:120px;padding:14px;border:1px dashed var(--a-border);border-radius:8px;background:#f8fafc;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:14px}
+.bp-preview-card{background:#fff;border:1px solid var(--a-border);box-shadow:0 2px 8px rgba(0,0,0,.08);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px;gap:4px;box-sizing:border-box}
+.bp-preview-title{font-weight:700;text-align:center;line-height:1.2;word-break:break-all}
+.bp-preview-img{max-width:100%;max-height:100%;object-fit:contain}
+.bp-preview-empty{font-size:12px;color:var(--a-muted)}
+/* 导入导出 */
+.io-step{font-size:12px;font-weight:600;color:var(--a-primary);margin:14px 0 8px;padding-bottom:4px;border-bottom:1px dashed var(--a-border)}
+.io-drop{border:2px dashed var(--a-border);border-radius:8px;padding:26px;text-align:center;color:var(--a-muted);cursor:pointer;transition:all .15s;background:#f8fafc}
+.io-drop:hover{border-color:var(--a-primary);background:var(--a-primary-soft);color:var(--a-primary)}
+.io-map{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+.io-map .fld label{font-size:12px}
+.io-preview{max-height:220px;overflow:auto;border:1px solid var(--a-border);border-radius:6px}
+.io-preview table{font-size:12px}
+.io-preview th,.io-preview td{padding:6px 8px;white-space:nowrap}
+.io-msg{font-size:12px;line-height:1.7;padding:8px 10px;border-radius:6px;background:#f8fafc;color:var(--a-muted);margin-top:10px}
+.io-msg.ok{background:#dcfce7;color:#166534}
+.io-msg.err{background:#fee2e2;color:#991b1b}
+/* 用户管理弹窗 */
+.um-list{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto}
+.um-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--a-border);border-radius:6px;background:#fcfdff;font-size:12px}
+.um-row .uname{font-weight:700;min-width:80px}
+.um-row .tag{font-size:11px}
+.um-row .sp{flex:1}
+.um-row select{font-size:12px;padding:4px 6px;border:1px solid var(--a-border);border-radius:5px}
+/* 列筛选 */
+.th-inner{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.filter-btn{width:18px;height:18px;line-height:16px;padding:0;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--a-muted);cursor:pointer;font-size:11px}
+.filter-btn:hover{border-color:var(--a-border);background:#f1f5f9;color:var(--a-primary)}
+.filter-btn.active{background:var(--a-primary);color:#fff;border-color:var(--a-primary)}
+.filter-panel{position:fixed;z-index:60;width:250px;background:#fff;border:1px solid var(--a-border);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.16)}
+.filter-panel.hidden{display:none}
+.fp-hd{padding:10px 12px;border-bottom:1px solid var(--a-border);display:flex;align-items:center;justify-content:space-between;font-size:13px}
+.fp-hd .btn{padding:0 6px;font-size:15px;line-height:1}
+.fp-bd{padding:12px;max-height:280px;overflow-y:auto}
+.fp-bd .fld{margin-bottom:10px}
+.fp-values{display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;padding:6px 8px;border:1px solid var(--a-border);border-radius:6px;background:#f8fafc}
+.fp-values label{display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
+.fp-ft{padding:10px 12px;border-top:1px solid var(--a-border);display:flex;justify-content:space-between;gap:8px}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="overlay" id="overlay"></div>
+<header class="topbar">
+  <h1>🏷️ 资产管理 <span class="demo-badge">真实数据 · Asset.db</span></h1>
+  <div class="right">
+    <span>{{ username }}</span>
+    <button class="btn sm" id="btnUserManage" style="background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.3);">👥 用户管理</button>
+    <a href="/editor">返回台账</a>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- ★ 我的资产台账（每用户默认一本） -->
+  <section class="panel myledger-panel">
+    <div class="panel-hd">
+      <h2>📒 我的资产台账</h2>
+      <span class="hint">每个用户默认拥有一本资产台账，所有入库资产都会记到这里。</span>
+    </div>
+    <div class="panel-bd">
+      <div class="ml-meta">
+        <div class="ml-name" id="mlName">—的资产台账</div>
+        <div class="ml-stats">
+          <span>资产总数 <b id="mlCount">0</b></span>
+          <span>本次会话新增 <b id="mlAdded">0</b></span>
+        </div>
+      </div>
+      <div class="ml-fields">
+        <span class="ml-field">资产唯一编码</span>
+        <span class="ml-field">所属组织</span>
+        <span class="ml-field">所属用户</span>
+      </div>
+      <div class="ml-desc">说明：这三列是资产台账的固定核心字段；入库时填写的扩展信息（位置、附件、经办人等）作为附加列随记录保留。</div>
+    </div>
+  </section>
+
+  <!-- ★ 入库操作区 -->
+  <section class="panel">
+    <div class="panel-hd">
+      <h2>出入库操作</h2>
+      <span class="hint" id="pendingSummary">采购入库随机生成编码；接收调拨来自他人出库，来源自动带出。</span>
+    </div>
+    <div class="panel-bd">
+      <div class="ctrl-row">
+        <button class="btn primary" id="btnInPurchase">🛒 采购入库</button>
+        <button class="btn" id="btnInRecycle">📥 接收调拨入库 <span id="pendingBadge" class="badge hidden">0</span></button>
+        <button class="btn" id="btnOutbound">📤 出库登记</button>
+        <button class="btn" id="btnImport">📥 批量导入</button>
+        <button class="btn" id="btnExport">📤 批量导出</button>
+        <button class="btn" id="btnLocConfig" style="margin-left:auto;">⚙️ 字段配置（位置 / 台账）</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-hd">
+      <h2>台账查看与展示设置</h2>
+      <span class="hint">第一项为你的资产台账（入库记录自动进入）；其余为示例台账，仅用于演示切换查看。</span>
+    </div>
+    <div class="panel-bd">
+      <div class="ctrl-row">
+        <div class="ctrl"><label>查看台账</label>
+          <select id="ledgerSel">
+            <option value="my">我的资产台账（{{ username }}）</option>
+            <option value="inventory">库存台账（示例 · 860 行）</option>
+            <option value="inspect">巡检记录（示例 · 320 行）</option>
+          </select>
+        </div>
+        <div class="ctrl"><label>行预览</label>
+          <select id="previewMode">
+            <option value="row">表格逐行</option>
+            <option value="card">卡片预览</option>
+          </select>
+        </div>
+        <div class="ctrl"><label>每页行数</label>
+          <select id="pageSize"><option>10</option><option>20</option><option>50</option></select>
+        </div>
+        <button class="btn primary" id="applyBtn">应用设置</button>
+        <button class="btn" id="colCfgToggle">自定义展示列</button>
+      </div>
+      <div class="col-cfg hidden" id="colCfg">
+        <span class="hint" style="width:100%">勾选需要展示的列（演示用，勾选后表格实时更新）：</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-hd">
+      <h2>资产列表</h2>
+      <span class="hint" id="listMeta">共 0 条 · 勾选可批量操作，点击行可更新台账信息</span>
+      <button class="btn sm hidden" id="btnClearFilters" title="清除所有列的筛选条件">🧹 清除筛选</button>
+    </div>
+    <div id="assetBatchBar" class="asset-batch hidden">
+      <span class="ab-count">已选 <b id="assetSelCount">0</b> 项</span>
+      <button class="btn sm primary" id="btnBatchPrintQr">🏷️ 批量打印二维码</button>
+      <button class="btn sm" id="btnBatchOut">📤 批量出库</button>
+      <button class="btn sm danger" id="btnBatchDel">🗑 批量删除</button>
+      <button class="btn sm" id="btnBatchClear" style="margin-left:auto;">取消选择</button>
+    </div>
+    <div class="panel-bd" style="padding:0;overflow:auto;max-height:62vh">
+      <table id="assetTable"><thead></thead><tbody></tbody></table>
+      <div id="cardPreview" class="hidden" style="padding:16px"></div>
+    </div>
+  </section>
+</div>
+
+<!-- 资产操作抽屉 -->
+<div class="drawer" id="drawer">
+  <div class="drawer-hd">
+    <div style="flex:1">
+      <h3 id="drawerTitle">资产操作</h3>
+      <div class="asset-name" id="drawerAsset">资产编号：—</div>
+    </div>
+    <button class="btn" id="drawerClose">关闭</button>
+  </div>
+  <div class="tabs" id="drawerTabs">
+    <button class="tab active" data-mod="inout">出入库</button>
+    <button class="tab" data-mod="transfer">调拨转移</button>
+    <button class="tab" data-mod="maint">维修保养</button>
+    <button class="tab" data-mod="count">盘点</button>
+    <button class="tab" data-mod="dispose">报废处置</button>
+    <button class="tab" data-mod="ledger">资产台账</button>
+  </div>
+  <div class="drawer-bd" id="drawerBody"></div>
+</div>
+
+<!-- 入库弹窗（采购 / 回收） -->
+<div class="in-modal" id="inModal">
+  <div class="in-box">
+    <div class="in-hd">
+      <h3 id="inTitle">入库登记</h3>
+      <button class="btn" id="inClose">关闭</button>
+    </div>
+    <div class="in-bd">
+      <div class="tabs" style="padding:0 0 10px;">
+        <button class="tab active" data-intab="purchase">🛒 采购入库</button>
+        <button class="tab" data-intab="recycle">📥 接收调拨入库 <span id="pendingTabBadge" class="badge hidden">0</span></button>
+      </div>
+      <div id="inTabPurchase" class="in-pane">
+        <div class="fgrid">
+          <div class="fld full">
+            <label>资产唯一编码 <span class="req">*</span></label>
+            <div class="code-row">
+              <input type="text" id="inPurCode" placeholder="点击右侧按钮随机生成">
+              <button class="btn" id="inGenCode">随机生成</button>
+            </div>
+          </div>
+          <div class="fld"><label>资产名称 <span class="req">*</span></label><input type="text" id="inPurName" placeholder="例如：服务器-01"></div>
+          <div class="fld"><label>资产类型</label><input type="text" id="inPurType" placeholder="服务器 / 交换机 / 打印机..."></div>
+          <div class="fld"><label>采购日期</label><input type="text" id="inPurDate" placeholder="2026-11-24"></div>
+          <div class="fld"><label>供应商</label><input type="text" id="inPurVendor" placeholder="采购来源"></div>
+          <div class="fld full">
+            <label>采购单附件（可多选，Demo 仅展示文件名）</label>
+            <input type="file" id="inPurFiles" multiple>
+            <div class="file-list" id="inPurFileList"></div>
+          </div>
+          <div id="inPurCustom" class="fgrid full" style="margin-top:6px;"></div>
+        </div>
+      </div>
+      <div id="inTabRecycle" class="in-pane hidden">
+        <div class="ship-hd">① 选择对方发来的待接收单（来源由对方出库时生成，不可自行填写）</div>
+        <div id="inPendingList" class="ship-list"></div>
+        <div id="inRecForm" class="hidden" style="margin-top:14px;">
+          <div id="inRecAttach" class="io-msg hidden"></div>
+          <div class="ship-hd" style="margin-top:8px;">② 确认接收信息并入库</div>
+          <div class="fgrid" style="margin-top:10px;">
+            <div class="fld full">
+              <label>资产唯一编码 <span class="req">*</span>（由出库单带出）</label>
+              <input type="text" id="inRecCode" readonly>
+            </div>
+            <div class="fld"><label>资产名称（由出库单带出）</label><input type="text" id="inRecName" readonly></div>
+            <div class="fld"><label>来源人员 / 组织（由出库单带出，不可修改）</label><input type="text" id="inRecSource" readonly></div>
+            <div class="fld"><label>来源经办人（由出库单带出）</label><input type="text" id="inRecSrcOperator" readonly></div>
+            <div class="fld full">
+              <label>入库位置 <span class="req">*</span></label>
+              <select id="inRecLoc"></select>
+            </div>
+            <div id="inRecLocFields" class="fgrid full"></div>
+            <div id="inRecCustom" class="fgrid full" style="margin-top:6px;"></div>
+            <div class="fld"><label>所属组织（默认当前用户组织，可改）</label><input type="text" id="inRecOrg"></div>
+            <div class="fld"><label>接收经办人（默认当前用户，可改）</label><input type="text" id="inRecOperator"></div>
+            <div class="fld"><label>接收日期</label><input type="text" id="inRecDate"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="in-ft">
+      <button class="btn" id="inCancel">取消</button>
+      <button class="btn primary" id="inSubmit">确认入库</button>
+    </div>
+  </div>
+</div>
+
+<!-- 出库登记弹窗 -->
+<div class="in-modal" id="outModal">
+  <div class="in-box">
+    <div class="in-hd"><h3>📤 出库登记（生成待接收单）</h3><button class="btn" id="outClose">关闭</button></div>
+    <div class="in-bd">
+      <p class="hint" style="margin:0 0 14px;">
+        从「我的资产台账」选择资产出库，指定接收方。资产已有附件会随单据同步给接收方；上传的交接单也会一并附带。接收方确认后，来源与全部附件自动入账。
+      </p>
+      <div class="fgrid">
+        <div class="fld full"><label>出库资产 <span class="req">*</span></label><select id="outAsset"></select></div>
+        <div class="fld"><label>接收方人员 <span class="req">*</span></label><select id="outToUser"></select></div>
+        <div class="fld"><label>接收方组织（自动带出）</label><input type="text" id="outToOrg" readonly></div>
+        <div class="fld"><label>出库经办人（默认当前用户，可改）</label><input type="text" id="outOperator"></div>
+        <div class="fld"><label>出库日期</label><input type="text" id="outDate"></div>
+        <div class="fld full"><label>备注 / 出库原因</label><input type="text" id="outNote" placeholder="例如：项目调拨 / 设备借用"></div>
+        <div class="fld full">
+          <label>交接单附件（可多选；资产已有附件会自动同步，无需重复上传）</label>
+          <input type="file" id="outFiles" multiple>
+          <div class="file-list" id="outFileList"></div>
+        </div>
+      </div>
+      <div class="ship-hd" style="margin-top:16px;">我发出的单据（对方接收后状态变「已接收」）</div>
+      <div id="outMyShipList" class="ship-list" style="margin-top:8px;"></div>
+    </div>
+    <div class="in-ft"><button class="btn" id="outCancel">取消</button><button class="btn primary" id="outSubmit">确认出库</button></div>
+  </div>
+</div>
+
+<!-- 位置与字段配置弹窗 -->
+<div class="in-modal" id="locModal">
+  <div class="in-box wide">
+    <div class="in-hd"><h3>字段配置（位置 / 台账）</h3><button class="btn" id="locClose">关闭</button></div>
+    <div class="in-bd">
+      <h4 style="margin:0 0 8px;font-size:14px;">① 位置列表（回收入库时可选）</h4>
+      <div class="loc-cfg-row">
+        <input type="text" id="newLocName" placeholder="新位置名称，例如：A机房-03柜">
+        <button class="btn primary sm" id="addLocBtn">添加位置</button>
+      </div>
+      <div class="loc-list" id="locList"></div>
+
+      <h4 style="margin:20px 0 8px;font-size:14px;">② 位置自定义字段（入库时按所选位置填写）</h4>
+      <p class="hint">可为本页的位置增加自定义字段，例如「货架号」「楼层」「负责人」。字段添加后，回收/调拨入库表单会动态出现这些输入项。</p>
+      <div id="locFieldRows"></div>
+      <div class="loc-cfg-row">
+        <input type="text" id="newFieldName" placeholder="字段名，例如：货架号">
+        <select id="newFieldType"><option value="text">文本</option><option value="number">数字</option><option value="date">日期</option></select>
+        <button class="btn primary sm" id="addFieldBtn">添加位置字段</button>
+      </div>
+
+      <h4 style="margin:22px 0 8px;font-size:14px;">③ 台账自定义字段（入库时填写，台账中作为列展示）</h4>
+      <p class="hint">可增加任意业务字段，如「保修到期」「序列号」「采购渠道」。支持文本/数字/日期/下拉，设置必填与适用范围；添加后自动出现在对应入库表单和「自定义展示列」里。</p>
+      <div id="cfFieldRows"></div>
+      <div class="cf-add">
+        <input type="text" id="newCfName" placeholder="字段名，例如：保修到期">
+        <select id="newCfType">
+          <option value="text">文本</option><option value="number">数字</option>
+          <option value="date">日期</option><option value="select">下拉</option>
+        </select>
+        <input type="text" id="newCfOptions" placeholder="下拉选项（逗号分隔，仅下拉用）">
+        <select id="newCfApply">
+          <option value="all">采购+接收</option><option value="purchase">仅采购入库</option><option value="receive">仅接收调拨</option>
+        </select>
+        <label class="cf-required"><input type="checkbox" id="newCfRequired"> 必填</label>
+        <button class="btn primary sm" id="addCfBtn">添加台账字段</button>
+      </div>
+    </div>
+    <div class="in-ft"><button class="btn" id="locDone">完成</button></div>
+  </div>
+</div>
+
+<!-- 批量导入弹窗 -->
+<div class="in-modal" id="importModal">
+  <div class="in-box wide">
+    <div class="in-hd"><h3>📥 批量导入资产台账</h3><button class="btn" id="impClose">关闭</button></div>
+    <div class="in-bd">
+      <div class="io-step">① 选择 Excel / CSV 文件</div>
+      <div class="io-drop" id="impDrop">点击选择文件，或将 .xlsx / .xls / .csv 拖到这里<br><span style="font-size:11px;">首行为表头；支持 xlsx / xls / csv</span></div>
+      <input type="file" id="impFile" accept=".xlsx,.xls,.csv" style="display:none">
+      <div id="impFileInfo" class="io-msg hidden"></div>
+
+      <div id="impMapArea" class="hidden">
+        <div class="io-step">② 字段映射（把文件列对应到台账字段）</div>
+        <div class="io-map" id="impMap"></div>
+        <div class="hint" style="margin-top:8px;">带 <span style="color:var(--a-red)">*</span> 为必填；不填编码时系统自动生成。已有相同编码的记录将被跳过，不会覆盖。</div>
+      </div>
+
+      <div id="impPreviewArea" class="hidden">
+        <div class="io-step">③ 数据预览（前 5 行）</div>
+        <div class="io-preview" id="impPreview"></div>
+        <div id="impSummary" class="io-msg"></div>
+      </div>
+    </div>
+    <div class="in-ft">
+      <button class="btn" id="impCancel">取消</button>
+      <button class="btn primary" id="impSubmit" disabled>确认导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 批量导出弹窗 -->
+<div class="in-modal" id="exportModal">
+  <div class="in-box">
+    <div class="in-hd"><h3>📤 批量导出资产台账</h3><button class="btn" id="expClose">关闭</button></div>
+    <div class="in-bd">
+      <div class="fld">
+        <label>导出范围</label>
+        <select id="expScope">
+          <option value="all">全部资产</option>
+          <option value="filtered">当前筛选结果</option>
+          <option value="selected">已勾选的资产</option>
+        </select>
+      </div>
+      <p class="hint" style="margin-top:12px;">导出为 .xlsx，包含所有展示列与自定义字段；表头使用中文列名。</p>
+      <div id="expInfo" class="io-msg"></div>
+    </div>
+    <div class="in-ft">
+      <button class="btn" id="expCancel">取消</button>
+      <button class="btn primary" id="expSubmit">导出 Excel</button>
+    </div>
+  </div>
+</div>
+
+<!-- 列筛选浮层 -->
+<div id="filterPanel" class="filter-panel hidden">
+  <div class="fp-hd"><b id="fpTitle">筛选</b><button class="btn sm" id="fpClose">×</button></div>
+  <div class="fp-bd" id="fpBody"></div>
+  <div class="fp-ft">
+    <button class="btn sm" id="fpReset">清除本列</button>
+    <button class="btn sm primary" id="fpApply">应用筛选</button>
+  </div>
+</div>
+
+<!-- 更新台账信息弹窗 -->
+<div class="in-modal" id="editModal">
+  <div class="in-box wide">
+    <div class="in-hd"><h3>更新台账信息</h3><button class="btn" id="editClose">关闭</button></div>
+    <div class="in-bd">
+      <p class="edit-hint">修改后点击「保存更新」，变更会写回当前台账。资产唯一编码与所属用户为台账归属字段，不可修改。</p>
+      <div class="fgrid" id="editFields"></div>
+      <div class="io-step" style="margin-top:16px;">📎 相关附件（点击预览 / 打印，可直接增删）</div>
+      <div id="editAttachList" class="file-list"></div>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+        <input type="file" id="editAttachInput" multiple hidden>
+        <button class="btn sm" id="editAttachAdd">➕ 添加附件</button>
+        <span class="hint" id="editAttachHint"></span>
+      </div>
+      <div class="io-step" style="margin-top:16px;">🔄 全生命周期（时间 / 地点 / 给谁 / 经办人）</div>
+      <div id="editTimeline" class="life-timeline"></div>
+    </div>
+    <div class="in-ft">
+      <button class="btn" id="editQrLabel">🏷️ 查看二维码标签</button>
+      <button class="btn" id="editCancel" style="margin-left:auto;">取消</button>
+      <button class="btn primary" id="editSave">保存更新</button>
+    </div>
+  </div>
+</div>
+
+<!-- 二维码标签弹窗（单资产 / 批量共用） -->
+<div class="in-modal" id="qrLabelModal">
+  <div class="in-box wide">
+    <div class="in-hd">
+      <h3 id="qrModalTitle">🏷️ 二维码标签</h3>
+      <button class="btn" id="qrClose">关闭</button>
+    </div>
+    <div class="in-bd">
+      <p class="hint" id="qrInfo" style="margin:0 0 12px;"></p>
+      <div class="fgrid">
+        <div class="fld full"><label>标签标题（所有标签统一，可留空）</label><input type="text" id="qrTitle" maxlength="60" placeholder="例如：资产标签"></div>
+        <div class="fld full"><label>标签显示字段（可多选，显示在二维码下方）</label><div id="qrFields" class="bp-fields"></div></div>
+        <div class="fld"><label>纸张大小</label><select id="qrPaper"></select></div>
+        <div class="fld" id="qrPaperCustom" style="display:none;"><label>自定义纸张 (mm)</label><div class="bp-two"><input type="number" id="qrPaperW" class="bp-input" value="210" min="20" max="2000"><span class="bp-x">×</span><input type="number" id="qrPaperH" class="bp-input" value="297" min="20" max="2000"></div></div>
+        <div class="fld"><label>标签模板</label><select id="qrLabelPreset"><option value="40x30">40 × 30 mm</option><option value="50x30">50 × 30 mm</option><option value="custom">自定义</option></select></div>
+        <div class="fld" id="qrLabelCustom" style="display:none;"><label>自定义标签 (mm)</label><div class="bp-two"><input type="number" id="qrLabelW" class="bp-input" value="40" min="10" max="500"><span class="bp-x">×</span><input type="number" id="qrLabelH" class="bp-input" value="30" min="10" max="500"></div></div>
+      </div>
+      <div class="fld" style="margin-top:14px;"><label>标签预览</label><div id="qrPreview" class="bp-preview"></div></div>
+    </div>
+    <div class="in-ft">
+      <button class="btn" id="qrCancel">取消</button>
+      <button class="btn primary" id="qrPrint">🖨️ 打印</button>
+    </div>
+  </div>
+</div>
+
+<!-- 批量出库弹窗 -->
+<div class="in-modal" id="batchOutModal">
+  <div class="in-box">
+    <div class="in-hd"><h3>批量出库</h3><button class="btn" id="batchOutClose">关闭</button></div>
+    <div class="in-bd">
+      <p class="hint" id="batchOutInfo" style="margin:0 0 14px;"></p>
+      <div class="fgrid">
+        <div class="fld"><label>接收方人员 <span class="req">*</span></label><select id="batchOutToUser"></select></div>
+        <div class="fld"><label>接收方组织（自动带出）</label><input type="text" id="batchOutToOrg" readonly></div>
+        <div class="fld"><label>出库经办人（默认当前用户，可改）</label><input type="text" id="batchOutOperator"></div>
+        <div class="fld"><label>出库日期</label><input type="text" id="batchOutDate"></div>
+        <div class="fld full"><label>备注 / 出库原因</label><input type="text" id="batchOutNote" placeholder="例如：批量调拨"></div>
+        <div class="fld full">
+          <label>交接单附件（可多选；资产已有附件会自动同步，无需重复上传）</label>
+          <input type="file" id="batchOutFiles" multiple>
+          <div class="file-list" id="batchOutFileList"></div>
+        </div>
+      </div>
+    </div>
+    <div class="in-ft">
+      <button class="btn" id="batchOutCancel">取消</button>
+      <button class="btn primary" id="batchOutSubmit">确认批量出库</button>
+    </div>
+  </div>
+</div>
+
+<!-- 用户管理弹窗（复用 /api/admin/*） -->
+<div class="in-modal" id="userModal">
+  <div class="in-box wide">
+    <div class="in-hd"><h3>👥 用户管理</h3><button class="btn" id="umClose">关闭</button></div>
+    <div class="in-bd">
+      <div class="io-step">新建用户</div>
+      <div class="ctrl-row">
+        <div class="ctrl"><label>用户名</label><input type="text" id="umNewName" placeholder="2-20 字符"></div>
+        <div class="ctrl"><label>密码</label><input type="text" id="umNewPass" placeholder="至少 4 位"></div>
+        <div class="ctrl"><label>角色</label><select id="umNewRole"><option value="user">普通用户</option><option value="admin">管理员</option></select></div>
+        <div class="ctrl"><label>组织</label><select id="umNewOrg"></select></div>
+        <button class="btn primary" id="umCreate">创建用户</button>
+      </div>
+      <div class="io-step" style="margin-top:18px;">用户列表 <span id="umPending" class="hint"></span></div>
+      <div id="umList" class="um-list"></div>
+      <div class="io-step" style="margin-top:18px;">组织列表</div>
+      <div class="ctrl-row">
+        <input type="text" id="umNewOrgName" placeholder="新组织名称">
+        <button class="btn" id="umOrgCreate">新增组织</button>
+      </div>
+      <div id="umOrgs" class="um-list" style="margin-top:8px;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  var CURRENT_USER = {{ username|tojson }};
+  var CURRENT_ORG = {{ current_org_name|tojson }};
+  var CSRF = {{ csrf_token|tojson }};
+  var CAN_MANAGE_USERS = {{ can_manage_users|tojson }};
+  var IS_SUPER_ADMIN = {{ is_super_admin|tojson }};
+</script>
+<script src="{{ url_for('static', filename='xlsx.full.min.js') }}"></script>
+<script src="{{ url_for('static', filename='qrcode-gen.js') }}"></script>
+<script src="{{ url_for('static', filename='qr-print-common.js') }}"></script>
+<script src="{{ url_for('static', filename='assets.js') }}?v=20261127c"></script>
+</body>
+</html>

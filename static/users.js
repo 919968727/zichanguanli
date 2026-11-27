@@ -51,10 +51,8 @@
         if (u.status === 'pending' && canManage) {
           acts.push('<button class="um-btn" data-act="approve" data-u="' + esc(u.username) + '">通过注册</button>');
         }
-        if (canManage) {
-          acts.push('<button class="um-btn" data-act="ledger-perms" data-u="' + esc(u.username) + '">台账权限</button>');
-        }
         if (canManage && !isSelf) {
+          acts.push('<button class="um-btn" data-act="reset-pwd" data-u="' + esc(u.username) + '">改密码</button>');
           acts.push('<button class="um-btn danger" data-act="delete" data-u="' + esc(u.username) + '">删除</button>');
         }
         return '<tr>' +
@@ -103,55 +101,15 @@
     }).join('');
   }
 
-  /* ---------- 用户台账权限 ---------- */
-  var lpUser = null;
-  var lpData = null;
-  async function openLedgerPermsModal(username) {
-    lpUser = username;
-    $('umLpTitle').textContent = '「' + username + '」的台账权限';
-    $('umLpModal').classList.remove('hidden');
-    $('umLpBody').innerHTML = '<div class="um-empty">加载中…</div>';
-    try {
-      var d = await api('/api/admin/users/' + encodeURIComponent(username) + '/ledger-permissions');
-      lpData = d;
-      renderLedgerPerms();
-    } catch (e) {
-      $('umLpBody').innerHTML = '<div class="um-empty">加载失败：' + esc(e.message) + '</div>';
-    }
-  }
-  function renderLedgerPerms() {
-    if (!lpData) return;
-    var keys = lpData.permission_keys || [];
-    var labels = lpData.permission_labels || {};
-    var items = lpData.items || [];
-    $('umLpBody').innerHTML = items.map(function (it) {
-      var roleSel = '<select class="um-select lp-role" data-lid="' + it.ledger_id + '">' +
-        '<option value="">未参与</option>' +
-        '<option value="manager"' + (it.role === 'manager' ? ' selected' : '') + '>管理者 manager</option>' +
-        '<option value="member"' + (it.role === 'member' ? ' selected' : '') + '>成员 member</option>' +
-        (it.role === 'owner' ? '<option value="owner" selected>所有者 owner（不可改）</option>' : '') +
-        '</select>';
-      var checks = keys.map(function (k) {
-        var on = it.permissions && it.permissions[k];
-        return '<label style="display:inline-flex;align-items:center;gap:3px;margin:3px 8px 3px 0;font-size:12px;">' +
-          '<input type="checkbox" class="lp-perm" data-lid="' + it.ledger_id + '" data-k="' + esc(k) + '"' +
-          (on ? ' checked' : '') + (it.role === 'owner' ? ' disabled' : '') + '>' +
-          esc(labels[k] || k) + '</label>';
-      }).join('');
-      return '<div class="lp-card" style="border:1px solid var(--um-border);border-radius:8px;padding:12px;margin-bottom:10px;">' +
-        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
-        '<b style="flex:1;">' + esc(it.ledger_name) + '</b>' + roleSel +
-        (it.role && it.role !== 'owner'
-          ? '<button class="um-btn danger" data-act="lp-remove" data-lid="' + it.ledger_id + '">移除</button>'
-          : '') +
-        '</div>' +
-        (it.role === 'owner'
-          ? '<div class="um-hint" style="margin:0;">所有者拥有全部权限，如需变更请在台账内转让。</div>'
-          : '<div>' + checks + '</div>') +
-        '<button class="um-btn primary" data-act="lp-save" data-lid="' + it.ledger_id + '"' +
-        (it.role && it.role !== 'owner' ? '' : ' disabled') + ' style="margin-top:8px;">保存该台账权限</button>' +
-        '</div>';
-    }).join('') || '<div class="um-empty">暂无台账</div>';
+  /* ---------- 修改密码 ---------- */
+  var pwdUser = null;
+  function openPwdModal(username) {
+    pwdUser = username;
+    $('umPwdTitle').textContent = '修改「' + username + '」的密码';
+    $('umPwdNew').value = '';
+    $('umPwdConfirm').value = '';
+    $('umPwdModal').classList.remove('hidden');
+    $('umPwdNew').focus();
   }
 
   /* ---------- 新建用户 ---------- */
@@ -210,30 +168,17 @@
     $('umRefreshUsers').addEventListener('click', loadUsers);
     $('umAddUser').addEventListener('click', openUserModal);
     $('umUserCancel').addEventListener('click', function () { $('umUserModal').classList.add('hidden'); });
-    $('umLpClose').addEventListener('click', function () { $('umLpModal').classList.add('hidden'); });
-    $('umLpBody').addEventListener('click', async function (e) {
-      var btn = e.target.closest('button[data-act]');
-      if (!btn || !lpUser) return;
-      var lid = btn.dataset.lid;
+    $('umPwdCancel').addEventListener('click', function () { $('umPwdModal').classList.add('hidden'); });
+    $('umPwdSave').addEventListener('click', async function () {
+      var p1 = $('umPwdNew').value, p2 = $('umPwdConfirm').value;
+      if (p1.length < 4) { alert('密码至少 4 位'); return; }
+      if (p1 !== p2) { alert('两次输入的密码不一致'); return; }
       try {
-        if (btn.dataset.act === 'lp-save') {
-          var roleSel = this.querySelector('.lp-role[data-lid="' + lid + '"]');
-          var role = roleSel ? roleSel.value : '';
-          if (!role || role === 'owner') { alert('请选择 manager 或 member'); return; }
-          var perms = {};
-          this.querySelectorAll('.lp-perm[data-lid="' + lid + '"]').forEach(function (cb) {
-            perms[cb.dataset.k] = cb.checked ? 1 : 0;
-          });
-          await api('/api/admin/users/' + encodeURIComponent(lpUser) + '/ledger-permissions/' + lid,
-            { method: 'PUT', body: JSON.stringify({ role: role, permissions: perms }) });
-          openLedgerPermsModal(lpUser);
-        } else if (btn.dataset.act === 'lp-remove') {
-          if (!confirm('移除该用户在此台账的成员权限？')) return;
-          await api('/api/admin/users/' + encodeURIComponent(lpUser) + '/ledger-permissions/' + lid,
-            { method: 'DELETE' });
-          openLedgerPermsModal(lpUser);
-        }
-      } catch (err) { alert('操作失败：' + err.message); }
+        var d = await api('/api/admin/users/' + encodeURIComponent(pwdUser) + '/password',
+          { method: 'PUT', body: JSON.stringify({ password: p1 }) });
+        $('umPwdModal').classList.add('hidden');
+        alert(d.msg || '密码已修改');
+      } catch (e) { alert('修改失败：' + e.message); }
     });
     $('umUserSave').addEventListener('click', async function () {
       var username = $('umNewUsername').value.trim();
@@ -271,8 +216,8 @@
           if (!confirm('删除用户「' + u + '」？此操作不可恢复。')) return;
           await api('/api/admin/users/' + encodeURIComponent(u), { method: 'DELETE' });
           await loadUsers().then(loadOrgTree);
-        } else if (act === 'ledger-perms') {
-          openLedgerPermsModal(u);
+        } else if (act === 'reset-pwd') {
+          openPwdModal(u);
         }
       } catch (err) { alert('操作失败：' + err.message); }
     });

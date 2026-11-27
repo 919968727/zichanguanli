@@ -8,6 +8,7 @@ certs/*.crt
 *.db-wal
 *.db-shm
 backups/
+asset_attachments/
 
 # Python 缓存
 __pycache__/

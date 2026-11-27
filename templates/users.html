@@ -156,14 +156,17 @@ table.um-table { width:100%; border-collapse:collapse; }
   </div>
 </div>
 
-<!-- 台账权限弹窗 -->
-<div id="umLpModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50;">
-  <div style="background:#fff;border-radius:10px;padding:22px;width:720px;max-width:92vw;max-height:86vh;display:flex;flex-direction:column;">
-    <h3 id="umLpTitle" style="margin:0 0 12px;">台账权限</h3>
-    <p class="um-hint">选择角色（manager/member）并勾选具体权限后点「保存」。owner 权限不可在此修改，需在台账内转让。</p>
-    <div id="umLpBody" style="overflow-y:auto;flex:1;"></div>
-    <div style="display:flex;justify-content:flex-end;margin-top:14px;">
-      <button class="um-btn" id="umLpClose">关闭</button>
+<!-- 修改密码弹窗 -->
+<div id="umPwdModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50;">
+  <div style="background:#fff;border-radius:10px;padding:22px;width:400px;max-width:90vw;">
+    <h3 id="umPwdTitle" style="margin:0 0 16px;">修改密码</h3>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <label>新密码<input class="um-input" id="umPwdNew" type="password" placeholder="至少 4 位"></label>
+      <label>确认新密码<input class="um-input" id="umPwdConfirm" type="password" placeholder="再次输入"></label>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+      <button class="um-btn" id="umPwdCancel">取消</button>
+      <button class="um-btn primary" id="umPwdSave">保存</button>
     </div>
   </div>
 </div>

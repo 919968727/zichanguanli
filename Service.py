@@ -1,5 +1,15 @@
 import os
 import secrets
+import sqlite3
+import json
+from datetime import datetime
+import UseAsset
+from UseAsset import (
+    ASSET_DB, ATTACH_DIR, list_assets, get_asset, create_asset, update_asset, delete_asset,
+    add_life_event, list_life, create_shipment, list_shipments, get_shipment, receive_shipment,
+    add_attachment, list_attachments, get_attachment, delete_attachment,
+    get_cf_config, set_cf_config, get_loc_config, set_loc_config,
+)
 import uuid
 import hashlib
 import re as _re_scan
@@ -35,7 +45,7 @@ from UseSqlite import (
     get_ledger_member, list_ledger_members, count_ledger_managers,
     has_permission, get_user_permissions,
     set_ledger_member, remove_ledger_member, transfer_owner,
-    revoke_all_by_manager, list_user_ledger_permissions,
+    revoke_all_by_manager,
     create_permission_request, list_permission_requests,
     get_permission_request, review_permission_request,
     cancel_permission_request, count_pending_requests_for_user,
@@ -44,6 +54,7 @@ from UseSqlite import (
     get_user_role, list_orgs, get_org, create_org, update_org, delete_org,
     descendant_org_ids, users_in_org_scope,
     set_user_role, set_user_org, get_user_features, set_user_feature,
+    update_user_password,
 )
 
 ROOT = 'root'
@@ -501,6 +512,345 @@ def create_app(secure_cookie=True):
         return render_template('users.html', username=session['username'],
                                sys_role=role,
                                sys_role_label=SYS_ROLE_LABELS.get(role, role))
+
+    @app.route('/assets')
+    def assets_page():
+        if 'username' not in session:
+            return redirect(url_for('index'))
+        role, org_id = get_user_role(session['username'])
+        org_name = ''
+        if org_id is not None:
+            o = get_org(org_id)
+            org_name = (o or {}).get('name', '')
+        return render_template('assets.html', username=session['username'],
+                               current_org_id=org_id, current_org_name=org_name,
+                               can_manage_users=_require_admin(),
+                               is_super_admin=_require_root())
+
+    # ============================================================
+    # 资产管理（真实后端，基于 Asset.db）
+    # ============================================================
+    def _asset_user():
+        return session.get('username')
+
+    def _asset_cfg():
+        cf = get_cf_config()
+        lc = get_loc_config()
+        locations = [r['name'] for r in lc if r['kind'] == 'location']
+        loc_fields = [{'name': r['name'], 'type': r['type']} for r in lc if r['kind'] == 'field']
+        return cf, locations, loc_fields
+
+    def _life_payload(src):
+        return {
+            'type': src.get('type', ''), 'title': src.get('title', ''),
+            'time': src.get('time', ''), 'place': src.get('place', ''),
+            'from': src.get('from', ''), 'to': src.get('to', ''),
+            'person': src.get('person', ''), 'note': src.get('note', ''),
+            'changes': src.get('changes') or [], 'ts': src.get('ts') or int(__import__('time').time() * 1000)
+        }
+
+    @app.route('/api/assets/bootstrap', methods=['GET'])
+    def api_assets_bootstrap():
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        cf, locations, loc_fields = _asset_cfg()
+        return jsonify({
+            'user': _asset_user(), 'org': session.get('org_id'),
+            'org_name': (lambda o: o['name'] if o else '')(get_org(session.get('org_id'))) if session.get('org_id') else '',
+            'sys_role': _current_sys_role(),
+            'can_manage_users': _require_admin(),
+            'assets': list_assets(_asset_user()),
+            'people': [{'username': u['username'], 'org': (get_org(u.get('org_id')) or {}).get('name', '') if u.get('org_id') else ''}
+                       for u in list_users() if u['status'] == 'approved' and u['username'] != _asset_user()],
+            'incoming': [s for s in list_shipments(_asset_user(), 'incoming') if s['status'] == 'pending'],
+            'outgoing': list_shipments(_asset_user(), 'outgoing'),
+            'custom_fields': cf, 'locations': locations, 'loc_fields': loc_fields
+        })
+
+    @app.route('/api/assets/config', methods=['GET', 'PUT'])
+    def api_assets_config():
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        if request.method == 'GET':
+            cf, locations, loc_fields = _asset_cfg()
+            return jsonify({'custom_fields': cf, 'locations': locations, 'loc_fields': loc_fields})
+        body = request.get_json(silent=True) or {}
+        try:
+            set_cf_config(body.get('custom_fields') or [])
+            set_loc_config(body.get('locations') or [], body.get('loc_fields') or [])
+        except Exception as e:
+            return jsonify({'msg': '保存配置失败：' + str(e)}), 400
+        _audit(_asset_user(), 'asset_config', 'asset', None, '', '保存字段/位置配置')
+        cf, locations, loc_fields = _asset_cfg()
+        return jsonify({'code': 0, 'custom_fields': cf, 'locations': locations, 'loc_fields': loc_fields})
+
+    @app.route('/api/assets', methods=['POST'])
+    def api_asset_create():
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        body = request.get_json(silent=True) or {}
+        code = (body.get('code') or '').strip()
+        name = (body.get('name') or '').strip()
+        if not code or not name:
+            return jsonify({'msg': '资产编码和名称不能为空'}), 400
+        if get_asset(code):
+            return jsonify({'msg': '资产编码已存在'}), 409
+        cf, _, _ = _asset_cfg()
+        custom = body.get('custom') or {}
+        for f in cf:
+            if f.get('required') and not str(custom.get(f['name'], '')).strip():
+                return jsonify({'msg': '请填写「' + f['name'] + '」'}), 400
+        data = {
+            'code': code, 'name': name, 'org': body.get('org') or '',
+            'type': body.get('type') or '', 'in_type': body.get('in_type') or '采购入库',
+            'location': body.get('location') or '', 'operator': body.get('operator') or _asset_user(),
+            'source': body.get('source') or '', 'date': body.get('date') or datetime.now().strftime('%Y-%m-%d'),
+            'custom': custom, 'loc_values': body.get('loc_values') or {}
+        }
+        asset = create_asset(data, _asset_user())
+        add_life_event(code, _life_payload(body.get('timeline') or {
+            'type': 'purchase', 'title': '采购入库', 'time': _now_str() if '_now_str' in globals() else datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'place': data['org'], 'from': data['source'], 'person': _asset_user(),
+            'note': '采购来源：' + (data['source'] or '未填写')
+        }))
+        _audit(_asset_user(), 'asset_create', 'asset', None, code, name)
+        return jsonify({'code': 0, 'asset': asset})
+
+    @app.route('/api/assets/<code>', methods=['GET', 'PUT', 'DELETE'])
+    def api_asset_item(code):
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        user = _asset_user()
+        asset = get_asset(code, user)
+        if not asset:
+            return jsonify({'msg': '资产不存在'}), 404
+        if request.method == 'GET':
+            return jsonify({
+                'asset': asset,
+                'timeline': list_life(code),
+                'attachments': list_attachments('asset', code)
+            })
+        if request.method == 'DELETE':
+            delete_asset(code, user)
+            _audit(user, 'asset_delete', 'asset', None, code, asset['name'])
+            return jsonify({'code': 0, 'msg': '已删除'})
+        body = request.get_json(silent=True) or {}
+        changes = {k: body[k] for k in ('name', 'org', 'type', 'location', 'operator', 'source', 'date', 'custom', 'loc_values') if k in body}
+        diffs = []
+        labels = {'name': '资产名称', 'org': '所属组织', 'type': '资产类型', 'location': '入库位置',
+                  'operator': '经办人', 'source': '来源', 'date': '入库日期'}
+        for k, v in changes.items():
+            old = asset.get(k)
+            if isinstance(old, dict) or isinstance(v, dict):
+                continue
+            if str(old or '') != str(v or ''):
+                diffs.append({'field': labels.get(k, k), 'old': str(old or '（空）'), 'now': str(v or '（空）')})
+        cf, _, _ = _asset_cfg()
+        custom = changes.get('custom', asset.get('custom') or {})
+        for f in cf:
+            if f.get('required') and not str(custom.get(f['name'], '')).strip():
+                return jsonify({'msg': '请填写「' + f['name'] + '」'}), 400
+        updated = update_asset(code, user, changes)
+        now = datetime.now().strftime('%Y-%m-%d %H:%M')
+        if diffs:
+            add_life_event(code, _life_payload({
+                'type': 'edit', 'title': '信息更新', 'time': now,
+                'place': updated.get('location', ''), 'person': user,
+                'note': user + ' 于 ' + now + ' 更新了 ' + str(len(diffs)) + ' 个字段',
+                'changes': diffs
+            }))
+        _audit(user, 'asset_update', 'asset', None, code, str(len(diffs)) + ' 个字段')
+        return jsonify({'code': 0, 'asset': updated, 'changes': diffs})
+
+    @app.route('/api/assets/batch-delete', methods=['POST'])
+    def api_asset_batch_delete():
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        codes = (request.get_json(silent=True) or {}).get('codes') or []
+        user = _asset_user()
+        n = 0
+        for code in codes:
+            if delete_asset(code, user):
+                n += 1
+        _audit(user, 'asset_batch_delete', 'asset', None, '', str(n) + ' 项')
+        return jsonify({'code': 0, 'deleted': n})
+
+    @app.route('/api/assets/<code>/timeline', methods=['GET'])
+    def api_asset_timeline(code):
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        if not get_asset(code, _asset_user()):
+            return jsonify({'msg': '资产不存在'}), 404
+        return jsonify({'timeline': list_life(code)})
+
+    @app.route('/api/shipments', methods=['POST'])
+    def api_shipment_create():
+        """出库：单条或批量，生成待接收单，资产从出库方台账移除。"""
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        body = request.get_json(silent=True) or {}
+        codes = body.get('codes') or ([body['code']] if body.get('code') else [])
+        to_user = (body.get('to_user') or '').strip()
+        if not codes or not to_user:
+            return jsonify({'msg': '请选择资产和接收方'}), 400
+        if to_user == _asset_user():
+            return jsonify({'msg': '不能出库给自己'}), 400
+        to_org = (body.get('to_org') or '').strip()
+        created = []
+        for code in codes:
+            asset = get_asset(code, _asset_user())
+            if not asset:
+                continue
+            sid = 'S-' + uuid.uuid4().hex[:16].upper()
+            ship = {
+                'id': sid, 'code': asset['code'], 'name': asset['name'], 'type': asset['type'],
+                'from_user': _asset_user(), 'from_org': asset.get('org', ''),
+                'from_operator': body.get('operator') or _asset_user(),
+                'to_user': to_user, 'to_org': to_org,
+                'date': body.get('date') or datetime.now().strftime('%Y-%m-%d'),
+                'note': body.get('note') or '', 'custom_values': asset.get('custom') or {}
+            }
+            create_shipment(ship)
+            # 附件随单据流转：改 owner
+            conn = sqlite3.connect(ASSET_DB)
+            try:
+                conn.execute("UPDATE attachments SET owner_type='shipment', owner_id=? WHERE owner_type='asset' AND owner_id=?",
+                             (sid, asset['code']))
+                conn.commit()
+            finally:
+                conn.close()
+            delete_asset(asset['code'], _asset_user(), keep_lifecycle=True)
+            # 保留原有生命周期，追加出库事件（资产在途，历史随单据流转）
+            add_life_event(asset['code'], _life_payload({
+                'type': 'out', 'title': '出库', 'time': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                'place': asset.get('location', ''), 'to': to_user + ' / ' + to_org,
+                'person': ship['from_operator'], 'note': ship['note'] or ('出库给 ' + to_user)
+            }))
+            created.append(sid)
+        _audit(_asset_user(), 'asset_out', 'shipment', None, ','.join(created), to_user)
+        return jsonify({'code': 0, 'created': created})
+
+    @app.route('/api/shipments/<sid>/receive', methods=['POST'])
+    def api_shipment_receive(sid):
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        ship = get_shipment(sid)
+        if not ship:
+            return jsonify({'msg': '单据不存在'}), 404
+        body = request.get_json(silent=True) or {}
+        code = ship['code']
+        if get_asset(code):
+            return jsonify({'msg': '该资产已在台账中，可能已被接收'}), 409
+        # 只有单据指定的接收方本人才能接收（服务端校验，不能只信客户端）
+        received = receive_shipment(sid, _asset_user(), _asset_user())
+        if not received:
+            return jsonify({'msg': '单据已被接收或接收方不匹配'}), 409
+        cf, _, _ = _asset_cfg()
+        custom = dict(ship.get('customValues') or {})
+        for f in cf:
+            if f.get('required') and not str(custom.get(f['name'], '')).strip():
+                custom[f['name']] = str(body.get('custom', {}).get(f['name'], ''))
+                if not custom[f['name']]:
+                    return jsonify({'msg': '请填写「' + f['name'] + '」'}), 400
+        data = {
+            'code': code, 'name': ship['name'], 'org': body.get('org') or '',
+            'type': ship['type'], 'in_type': '接收调拨',
+            'location': (body.get('location') or '').strip(),
+            'operator': body.get('operator') or _asset_user(),
+            'source': ship['from_user'] + ' / ' + ship['from_org'] + '（经办：' + ship['from_operator'] + '）',
+            'date': body.get('date') or datetime.now().strftime('%Y-%m-%d'),
+            'custom': custom, 'loc_values': body.get('loc_values') or {}
+        }
+        if not data['location']:
+            return jsonify({'msg': '请选择入库位置'}), 400
+        asset = create_asset(data, _asset_user())
+        # 出库时的生命周期事件已保留在 lifecycle 表中，这里只追加接收事件
+        add_life_event(code, _life_payload({
+            'type': 'receive', 'title': '接收调拨入库', 'time': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'place': data['location'], 'from': ship['from_user'] + ' / ' + ship['from_org'],
+            'to': _asset_user(), 'person': data['operator'],
+            'note': '来源经办：' + ship['from_operator'] + (('；' + ship['note']) if ship['note'] else '')
+        }))
+        # 附件 owner 改回资产
+        conn = sqlite3.connect(ASSET_DB)
+        try:
+            conn.execute("UPDATE attachments SET owner_type='asset', owner_id=? WHERE owner_type='shipment' AND owner_id=?",
+                         (code, sid))
+            conn.commit()
+        finally:
+            conn.close()
+        _audit(_asset_user(), 'asset_receive', 'asset', None, code, ship['from_user'])
+        return jsonify({'code': 0, 'asset': asset})
+
+    @app.route('/api/assets/<code>/attachments', methods=['GET', 'POST'])
+    def api_asset_attachments(code):
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        if request.method == 'GET':
+            return jsonify({'attachments': list_attachments('asset', code)})
+        asset = get_asset(code, _asset_user())
+        if not asset:
+            return jsonify({'msg': '资产不存在'}), 404
+        f = request.files.get('file')
+        if not f or not f.filename:
+            return jsonify({'msg': '请选择文件'}), 400
+        filename = os.path.basename(f.filename)
+        aid = uuid.uuid4().hex
+        path = os.path.join(ATTACH_DIR, aid)
+        f.save(path)
+        size = os.path.getsize(path)
+        add_attachment('asset', code, filename, f.mimetype or '', size, path, _asset_user())
+        add_life_event(code, _life_payload({
+            'type': 'attach', 'title': '添加附件', 'time': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'place': asset.get('location', ''), 'person': _asset_user(),
+            'note': _asset_user() + ' 添加了附件「' + filename + '」'
+        }))
+        _audit(_asset_user(), 'asset_upload', 'asset', None, code, filename)
+        return jsonify({'code': 0, 'msg': '附件已上传'})
+
+    @app.route('/api/attachments/<int:aid>/download', methods=['GET'])
+    def api_attachment_download(aid):
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        att = get_attachment(aid)
+        if not att or not os.path.exists(att['path']):
+            return jsonify({'msg': '附件不存在'}), 404
+        from flask import send_file
+        return send_file(att['path'], download_name=att['filename'], mimetype=att['mime'] or 'application/octet-stream', as_attachment=True)
+
+    @app.route('/api/attachments/<int:aid>', methods=['DELETE'])
+    def api_attachment_delete(aid):
+        if 'username' not in session:
+            return jsonify({'msg': '未登录'}), 401
+        att = get_attachment(aid)
+        if not att:
+            return jsonify({'msg': '附件不存在'}), 404
+        # 归属校验：只有附件上传者本人可删；超级管理员可删任意附件
+        # （调拨接收后，新所有者不能删上一任上传的附件，超管不受限）
+        life_code = None
+        is_super = _require_root()
+        if att['uploader'] != _asset_user() and not is_super:
+            return jsonify({'msg': '只能删除自己上传的附件'}), 403
+        if att['owner_type'] == 'asset':
+            if not is_super and not get_asset(att['owner_id'], _asset_user()):
+                return jsonify({'msg': '无权限删除该附件'}), 403
+            life_code = att['owner_id']
+        elif att['owner_type'] == 'shipment':
+            ship = get_shipment(att['owner_id'])
+            if not ship or (not is_super and _asset_user() not in (ship['from_user'], ship['to_user'])):
+                return jsonify({'msg': '无权限删除该附件'}), 403
+            life_code = ship['code']
+        os.remove(att['path']) if os.path.exists(att['path']) else None
+        delete_attachment(aid)
+        if life_code:
+            add_life_event(life_code, _life_payload({
+                'type': 'attach', 'title': '删除附件', 'time': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                'person': _asset_user(),
+                'note': _asset_user() + ' 删除了附件「' + att['filename'] + '」'
+            }))
+        _audit(_asset_user(), 'attachment_delete', att['owner_type'], None,
+               att['owner_id'], att['filename'])
+        return jsonify({'code': 0, 'msg': '已删除'})
 
     # ============================================================
     # 登录/注册/退出
@@ -1663,49 +2013,23 @@ def create_app(secure_cookie=True):
                feature + ('=on' if enabled else '=off'))
         return jsonify({'code': 0, 'msg': msg})
 
-    # ---------- 用户台账权限（超管/管理员用按钮管理） ----------
-    @app.route('/api/admin/users/<username>/ledger-permissions', methods=['GET'])
-    def api_admin_user_ledger_permissions(username):
+    # ---------- 管理员重置用户密码 ----------
+    @app.route('/api/admin/users/<username>/password', methods=['PUT'])
+    def api_admin_user_password(username):
         if not _require_admin() or not _can_manage_user(username):
             return jsonify({'msg': '无权限'}), 403
-        return jsonify({
-            'username': username,
-            'items': list_user_ledger_permissions(username),
-            'permission_keys': PERMISSION_KEYS,
-            'permission_labels': PERM_LABELS,
-            'role_labels': ROLE_LABELS,
-        })
-
-    @app.route('/api/admin/users/<username>/ledger-permissions/<int:lid>', methods=['PUT'])
-    def api_admin_user_ledger_permission_set(username, lid):
-        if not _require_admin() or not _can_manage_user(username):
-            return jsonify({'msg': '无权限'}), 403
-        if not get_ledger_by_id(lid):
-            return jsonify({'msg': '台账不存在'}), 404
-        body = request.get_json(silent=True) or {}
-        role = (body.get('role') or '').strip()
-        if role not in ('manager', 'member'):
-            return jsonify({'msg': '角色只能是 manager 或 member（owner 通过转让变更）'}), 400
-        perms = {}
-        for k in PERMISSION_KEYS:
-            perms[k] = 1 if (body.get('permissions') or {}).get(k) else 0
-        ok, msg = set_ledger_member(lid, username, role, perms,
-                                    granted_by=session.get('username'))
+        target_role, _ = get_user_role(username)
+        if username == ROOT or target_role == 'super_admin':
+            if not _require_root():
+                return jsonify({'msg': '仅超级管理员可修改该用户的密码'}), 403
+        password = (request.get_json(silent=True) or {}).get('password') or ''
+        if len(password) < 4:
+            return jsonify({'msg': '密码至少 4 位'}), 400
+        ok, msg = update_user_password(username, password)
         if not ok:
             return jsonify({'code': 400, 'msg': msg}), 400
-        _audit(session.get('username'), 'admin_set_ledger_perm', 'ledger', lid,
-               username, role)
-        return jsonify({'code': 0, 'msg': msg})
-
-    @app.route('/api/admin/users/<username>/ledger-permissions/<int:lid>', methods=['DELETE'])
-    def api_admin_user_ledger_permission_remove(username, lid):
-        if not _require_admin() or not _can_manage_user(username):
-            return jsonify({'msg': '无权限'}), 403
-        ok, msg = remove_ledger_member(lid, username)
-        if not ok:
-            return jsonify({'code': 400, 'msg': msg}), 400
-        _audit(session.get('username'), 'admin_remove_ledger_perm', 'ledger', lid,
-               username)
+        _audit(session.get('username'), 'admin_reset_password', 'user', None,
+               username, '重置密码')
         return jsonify({'code': 0, 'msg': msg})
 
     @app.route('/api/admin/audit-logs', methods=['GET'])

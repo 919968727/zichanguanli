@@ -642,6 +642,20 @@ def set_user_org(username, org_id):
         conn.close()
 
 
+def update_user_password(username, password):
+    """管理员重置指定用户密码。"""
+    if not username or not password or len(password) < 4:
+        return False, '密码至少 4 位'
+    conn = _connect(DATABASE)
+    try:
+        cur = conn.execute("UPDATE users SET password_hash=? WHERE username=?",
+                           (generate_password_hash(password), username))
+        conn.commit()
+        return (True, '密码已重置') if cur.rowcount else (False, '用户不存在')
+    finally:
+        conn.close()
+
+
 # ---------- 系统功能开关 ----------
 def get_user_features(username):
     """返回功能开关字典：默认全开，逐项被显式关闭时覆盖。"""
